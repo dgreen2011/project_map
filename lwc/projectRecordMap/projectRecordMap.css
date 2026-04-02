@@ -4,6 +4,7 @@
 
 .shell {
   position: relative;
+  z-index: 0;
   display: flex;
   flex-direction: column;
   gap: 0.9rem;
@@ -55,10 +56,16 @@
 }
 
 .content-grid {
+  position: relative;
+  z-index: 0;
   display: grid;
   grid-template-columns: minmax(18rem, 24rem) minmax(0, 1fr);
   gap: 0.9rem;
   align-items: start;
+}
+
+.content-grid-collapsed {
+  grid-template-columns: minmax(0, 1fr);
 }
 
 .side-panel {
@@ -81,7 +88,7 @@
 
 .layer-card-header {
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 0.8rem;
 }
@@ -102,103 +109,10 @@
   word-break: break-word;
 }
 
-.layer-card-subtitle {
-  font-size: 0.78rem;
-  color: #5c5c5c;
-  line-height: 1.35;
-  word-break: break-word;
-}
-
-.layer-meta-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.55rem;
-}
-
-.meta-item {
-  border: 1px solid #e5e5e5;
-  border-radius: 0.4rem;
-  background: #fafaf9;
-  padding: 0.55rem 0.65rem;
-  min-width: 0;
-}
-
-.meta-label {
-  font-size: 0.71rem;
-  font-weight: 700;
-  color: #5c5c5c;
-  line-height: 1.3;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  margin-bottom: 0.18rem;
-}
-
-.meta-value {
-  font-size: 0.82rem;
-  color: #181818;
-  line-height: 1.4;
-  word-break: break-word;
-}
-
-.config-block,
 .filter-block {
   display: flex;
   flex-direction: column;
   gap: 0.28rem;
-}
-
-.config-label {
-  font-size: 0.75rem;
-  font-weight: 700;
-  color: #444;
-  line-height: 1.3;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.config-value {
-  font-size: 0.84rem;
-  color: #181818;
-  line-height: 1.45;
-  word-break: break-word;
-}
-
-.config-helper {
-  font-size: 0.75rem;
-  color: #5c5c5c;
-  line-height: 1.35;
-  word-break: break-word;
-}
-
-.popup-field-list {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.45rem;
-}
-
-.popup-field-pill {
-  display: inline-flex;
-  flex-direction: column;
-  gap: 0.15rem;
-  max-width: 100%;
-  border: 1px solid #d8dde6;
-  border-radius: 999px;
-  background: #f8f9fb;
-  padding: 0.4rem 0.7rem;
-}
-
-.popup-field-pill-label {
-  font-size: 0.7rem;
-  font-weight: 700;
-  color: #444;
-  line-height: 1.2;
-}
-
-.popup-field-pill-value {
-  font-size: 0.75rem;
-  color: #16325c;
-  line-height: 1.25;
-  word-break: break-word;
 }
 
 .warning-list {
@@ -212,11 +126,14 @@
 }
 
 .map-panel {
+  position: relative;
+  z-index: 0;
   min-width: 0;
 }
 
 .map-frame {
   position: relative;
+  z-index: 0;
   border: 1px solid #d8dde6;
   border-radius: 0.45rem;
   background: #ffffff;
@@ -225,6 +142,8 @@
 }
 
 .map-root {
+  position: relative;
+  z-index: 0;
   width: 100%;
   min-height: 18rem;
 }
@@ -315,8 +234,55 @@
   line-height: 1.35;
 }
 
+/* Keep the map under the Lightning page chrome/tabs */
+.map-root .leaflet-container,
+.map-root .leaflet-pane,
+.map-root .leaflet-top,
+.map-root .leaflet-bottom,
+.map-root .leaflet-control,
+.map-root .leaflet-popup,
+.map-root .leaflet-tooltip {
+  z-index: 0 !important;
+}
+
+.map-root .leaflet-map-pane {
+  z-index: 1 !important;
+}
+
+.map-root .leaflet-tile-pane {
+  z-index: 1 !important;
+}
+
+.map-root .leaflet-overlay-pane {
+  z-index: 2 !important;
+}
+
+.map-root .leaflet-shadow-pane {
+  z-index: 3 !important;
+}
+
+.map-root .leaflet-marker-pane {
+  z-index: 4 !important;
+}
+
+.map-root .leaflet-tooltip-pane {
+  z-index: 5 !important;
+}
+
+.map-root .leaflet-popup-pane {
+  z-index: 6 !important;
+}
+
+.map-root .leaflet-control-container {
+  z-index: 7 !important;
+}
+
 @media (max-width: 1100px) {
   .content-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .content-grid-collapsed {
     grid-template-columns: 1fr;
   }
 }
@@ -334,9 +300,5 @@
   .layer-card-header {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .layer-meta-grid {
-    grid-template-columns: 1fr;
   }
 }
