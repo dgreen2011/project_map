@@ -3,7 +3,7 @@
     <apiVersion>63.0</apiVersion>
     <isExposed>true</isExposed>
     <masterLabel>Project Record Map</masterLabel>
-    <description>Displays Sitetracker Map Layer records on a Project record page using Map Layer and Map Object Configuration settings.</description>
+    <description>Displays Sitetracker Map Layer records on a Project record page using Map Layer and Map Object Configuration settings, and supports creating Production Work Logs from Site and Segment map features.</description>
 
     <targets>
         <target>lightning__RecordPage</target>
@@ -22,6 +22,13 @@
                 default="520"
                 min="180"
                 description="Height of the map area in pixels."
+            />
+
+            <property
+                name="workLogFieldSetApiName"
+                type="String"
+                label="Production Work Log Field Set API Name"
+                description="Optional field set on sitetracker__Production_Work_Log__c used to control which fields appear in the Create Work Log modal. Example: sitetracker__Create_Work_Logs_Form_GIS"
             />
 
             <property
