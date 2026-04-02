@@ -298,7 +298,7 @@ export default class ProjectRecordMap extends LightningElement {
     this.uiLayers.forEach((layer) => {
       previousVisibilityBySlot[layer.slotNumber] = layer.isVisible;
       previousFilterBySlot[layer.slotNumber] = layer.selectedFilterValue;
-    });
+          });
 
     const responseLayers = Array.isArray(response?.layers) ? response.layers : [];
 
@@ -598,7 +598,7 @@ export default class ProjectRecordMap extends LightningElement {
     }
 
     const renderedLayers = [];
-    coordinateSets.forEach((coordinateSet) => {
+        coordinateSets.forEach((coordinateSet) => {
       const latLngs = this.toLatLngs(coordinateSet);
       if (latLngs.length < 2) {
         return;
@@ -897,8 +897,7 @@ export default class ProjectRecordMap extends LightningElement {
     value.forEach((item) => this.collectCoordinateSetsRecursively(item, collector));
     return collector;
   }
-
-  isCoordinateSet(value) {
+    isCoordinateSet(value) {
     return (
       Array.isArray(value) &&
       value.length > 0 &&
