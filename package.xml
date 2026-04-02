@@ -5,9 +5,7 @@
         <name>ApexClass</name>
     </types>
     <types>
-        <members>adjustSegmentWork</members>
         <members>projectRecordMap</members>
-        <members>segmentPolylineFlowEditor</members>
         <name>LightningComponentBundle</name>
     </types>
     <version>63.0</version>
