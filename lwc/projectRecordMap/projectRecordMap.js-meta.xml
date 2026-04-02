@@ -1,0 +1,128 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<LightningComponentBundle xmlns="http://soap.sforce.com/2006/04/metadata">
+    <apiVersion>63.0</apiVersion>
+    <isExposed>true</isExposed>
+    <masterLabel>Project Record Map</masterLabel>
+    <description>Displays Sitetracker Map Layer records on a Project record page using Map Layer and Map Object Configuration settings.</description>
+
+    <targets>
+        <target>lightning__RecordPage</target>
+    </targets>
+
+    <targetConfigs>
+        <targetConfig targets="lightning__RecordPage">
+            <objects>
+                <object>sitetracker__Project__c</object>
+            </objects>
+
+            <property
+                name="mapHeightPx"
+                type="Integer"
+                label="Map Height (px)"
+                default="520"
+                min="180"
+                description="Height of the map area in pixels."
+            />
+
+            <property
+                name="mapLayerRecordId1"
+                type="String"
+                label="Map Layer Record Id 1"
+                description="Salesforce record Id for the first Sitetracker Map Layer to render."
+            />
+            <property
+                name="relationshipFieldPathOverride1"
+                type="String"
+                label="Project Relationship Field Override 1"
+                description="Optional field path on the layer's source object that links the record back to the current Project. Example: Project__c"
+            />
+            <property
+                name="filterFieldPathOverride1"
+                type="String"
+                label="Filter Field Override 1"
+                description="Optional field path used for user filtering on the map for layer 1. Example: RUS_Code__c"
+            />
+
+            <property
+                name="mapLayerRecordId2"
+                type="String"
+                label="Map Layer Record Id 2"
+                description="Salesforce record Id for the second Sitetracker Map Layer to render."
+            />
+            <property
+                name="relationshipFieldPathOverride2"
+                type="String"
+                label="Project Relationship Field Override 2"
+                description="Optional field path on the layer's source object that links the record back to the current Project. Example: Project__c"
+            />
+            <property
+                name="filterFieldPathOverride2"
+                type="String"
+                label="Filter Field Override 2"
+                description="Optional field path used for user filtering on the map for layer 2. Example: RUS_Code__c"
+            />
+
+            <property
+                name="mapLayerRecordId3"
+                type="String"
+                label="Map Layer Record Id 3"
+                description="Salesforce record Id for the third Sitetracker Map Layer to render."
+            />
+            <property
+                name="relationshipFieldPathOverride3"
+                type="String"
+                label="Project Relationship Field Override 3"
+                description="Optional field path on the layer's source object that links the record back to the current Project. Example: Project__c"
+            />
+            <property
+                name="filterFieldPathOverride3"
+                type="String"
+                label="Filter Field Override 3"
+                description="Optional field path used for user filtering on the map for layer 3. Example: RUS_Code__c"
+            />
+
+            <property
+                name="mapLayerRecordId4"
+                type="String"
+                label="Map Layer Record Id 4"
+                description="Salesforce record Id for the fourth Sitetracker Map Layer to render."
+            />
+            <property
+                name="relationshipFieldPathOverride4"
+                type="String"
+                label="Project Relationship Field Override 4"
+                description="Optional field path on the layer's source object that links the record back to the current Project. Example: Project__c"
+            />
+            <property
+                name="filterFieldPathOverride4"
+                type="String"
+                label="Filter Field Override 4"
+                description="Optional field path used for user filtering on the map for layer 4. Example: RUS_Code__c"
+            />
+
+            <property
+                name="mapLayerRecordId5"
+                type="String"
+                label="Map Layer Record Id 5"
+                description="Salesforce record Id for the fifth Sitetracker Map Layer to render."
+            />
+            <property
+                name="relationshipFieldPathOverride5"
+                type="String"
+                label="Project Relationship Field Override 5"
+                description="Optional field path on the layer's source object that links the record back to the current Project. Example: Project__c"
+            />
+            <property
+                name="filterFieldPathOverride5"
+                type="String"
+                label="Filter Field Override 5"
+                description="Optional field path used for user filtering on the map for layer 5. Example: RUS_Code__c"
+            />
+
+            <supportedFormFactors>
+                <supportedFormFactor type="Large" />
+                <supportedFormFactor type="Small" />
+            </supportedFormFactors>
+        </targetConfig>
+    </targetConfigs>
+</LightningComponentBundle>
