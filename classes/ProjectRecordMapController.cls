@@ -2,6 +2,10 @@ public with sharing class ProjectRecordMapController {
     private static final Integer MAX_LAYER_RECORDS = 5000;
     private static final String SUPPORTED_LAYER_TYPE = 'Sitetracker Layer';
     private static final String WORK_LOG_OBJECT_API = 'sitetracker__Production_Work_Log__c';
+    private static final String SITE_OBJECT_API = 'sitetracker__Site__c';
+    private static final String SEGMENT_OBJECT_API = 'sitetracker__Segment__c';
+    private static final String FEATURE_PLA_FIELD = 'Production_Line_Allocation__c';
+    private static final String DEFAULT_WORK_LOG_FIELD_SET = 'sitetracker__Create_Work_Logs_Form_GIS';
     private static final String WORK_LOG_FALLBACK_LAT_FIELD = 'sitetracker__Location__Latitude__s';
     private static final String WORK_LOG_FALLBACK_LNG_FIELD = 'sitetracker__Location__Longitude__s';
     private static final Pattern SAFE_FIELD_PATH_PATTERN =
@@ -102,6 +106,7 @@ public with sharing class ProjectRecordMapController {
 
         @AuraEnabled public String filterValue { get; set; }
         @AuraEnabled public String styleValue { get; set; }
+        @AuraEnabled public Boolean canCreateWorkLog { get; set; }
 
         @AuraEnabled public List<PopupValue> popupValues { get; set; }
     }
@@ -111,6 +116,33 @@ public with sharing class ProjectRecordMapController {
         @AuraEnabled public String valueFieldPath { get; set; }
         @AuraEnabled public String dataType { get; set; }
         @AuraEnabled public String displayValue { get; set; }
+    }
+
+
+    public class WorkLogLaunchResponse {
+        @AuraEnabled public Id featureRecordId { get; set; }
+        @AuraEnabled public String featureObjectApiName { get; set; }
+        @AuraEnabled public String featureName { get; set; }
+        @AuraEnabled public String workLogObjectApiName { get; set; }
+        @AuraEnabled public String fieldSetApiName { get; set; }
+        @AuraEnabled public String statusValue { get; set; }
+        @AuraEnabled public String startDateIso { get; set; }
+        @AuraEnabled public String endDateIso { get; set; }
+        @AuraEnabled public Id projectId { get; set; }
+        @AuraEnabled public Id productionLineAllocationId { get; set; }
+        @AuraEnabled public Id productionPlanLineId { get; set; }
+        @AuraEnabled public Id serviceId { get; set; }
+        @AuraEnabled public Id jobId { get; set; }
+        @AuraEnabled public Id activityId { get; set; }
+        @AuraEnabled public Id siteId { get; set; }
+        @AuraEnabled public Id segmentId { get; set; }
+        @AuraEnabled public List<WorkLogFormField> formFields { get; set; }
+        @AuraEnabled public List<String> warnings { get; set; }
+    }
+
+    public class WorkLogFormField {
+        @AuraEnabled public String apiName { get; set; }
+        @AuraEnabled public String label { get; set; }
     }
 
     private class RequestedLayerSlot {
@@ -207,6 +239,138 @@ public with sharing class ProjectRecordMapController {
         }
 
         return response;
+    }
+
+    @AuraEnabled
+    public static WorkLogLaunchResponse getWorkLogLaunchConfig(
+        Id featureRecordId,
+        String featureObjectApiName,
+        Id projectId,
+        String fieldSetApiName
+    ) {
+        if (featureRecordId == null) {
+            throw handledException('Feature record Id is required.');
+        }
+
+        String normalizedObjectApiName = normalizeString(featureObjectApiName);
+        if (!isSupportedWorkLogSourceObject(normalizedObjectApiName)) {
+            throw handledException('Work Log creation is supported only for Site and Segment records.');
+        }
+
+        WorkLogLaunchResponse response = new WorkLogLaunchResponse();
+        response.featureRecordId = featureRecordId;
+        response.featureObjectApiName = normalizedObjectApiName;
+        response.workLogObjectApiName = WORK_LOG_OBJECT_API;
+        response.fieldSetApiName = String.isBlank(fieldSetApiName)
+            ? DEFAULT_WORK_LOG_FIELD_SET
+            : normalizeString(fieldSetApiName);
+        response.statusValue = 'Draft';
+        response.startDateIso = String.valueOf(Date.today());
+        response.endDateIso = String.valueOf(Date.today());
+        response.formFields = new List<WorkLogFormField>();
+        response.warnings = new List<String>();
+
+        if (normalizedObjectApiName == SITE_OBJECT_API) {
+            sitetracker__Site__c siteRecord = [
+                SELECT
+                    Id,
+                    Name,
+                    Project__c,
+                    Production_Line_Allocation__c,
+                    Production_Line_Allocation__r.Id,
+                    Production_Line_Allocation__r.sitetracker__Job__c,
+                    Production_Line_Allocation__r.sitetracker__Activity__c,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__c,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Item__c,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Project__c
+                FROM sitetracker__Site__c
+                WHERE Id = :featureRecordId
+                LIMIT 1
+            ];
+
+            response.featureName = siteRecord.Name;
+            response.siteId = siteRecord.Id;
+            populateWorkLogDefaultsFromFeature(
+                response,
+                projectId,
+                siteRecord.Project__c,
+                siteRecord.Production_Line_Allocation__c,
+                siteRecord.Production_Line_Allocation__r
+            );
+        } else {
+            sitetracker__Segment__c segmentRecord = [
+                SELECT
+                    Id,
+                    Name,
+                    Project__c,
+                    Production_Line_Allocation__c,
+                    Production_Line_Allocation__r.Id,
+                    Production_Line_Allocation__r.sitetracker__Job__c,
+                    Production_Line_Allocation__r.sitetracker__Activity__c,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__c,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Item__c,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Project__c
+                FROM sitetracker__Segment__c
+                WHERE Id = :featureRecordId
+                LIMIT 1
+            ];
+
+            response.featureName = segmentRecord.Name;
+            response.segmentId = segmentRecord.Id;
+            populateWorkLogDefaultsFromFeature(
+                response,
+                projectId,
+                segmentRecord.Project__c,
+                segmentRecord.Production_Line_Allocation__c,
+                segmentRecord.Production_Line_Allocation__r
+            );
+        }
+
+        response.formFields = getCreateableFieldSetFields(
+            WORK_LOG_OBJECT_API,
+            response.fieldSetApiName,
+            response.warnings
+        );
+
+        return response;
+    }
+
+    @AuraEnabled
+    public static void linkUploadedFilesToRecord(List<Id> contentDocumentIds, Id linkedRecordId) {
+        if (linkedRecordId == null || contentDocumentIds == null || contentDocumentIds.isEmpty()) {
+            return;
+        }
+
+        Set<Id> documentIds = new Set<Id>(contentDocumentIds);
+        Map<Id, ContentDocumentLink> existingLinksByDocumentId = new Map<Id, ContentDocumentLink>();
+
+        for (ContentDocumentLink existingLink : [
+            SELECT ContentDocumentId
+            FROM ContentDocumentLink
+            WHERE LinkedEntityId = :linkedRecordId
+            AND ContentDocumentId IN :documentIds
+        ]) {
+            existingLinksByDocumentId.put(existingLink.ContentDocumentId, existingLink);
+        }
+
+        List<ContentDocumentLink> linksToInsert = new List<ContentDocumentLink>();
+
+        for (Id documentId : documentIds) {
+            if (existingLinksByDocumentId.containsKey(documentId)) {
+                continue;
+            }
+
+            ContentDocumentLink newLink = new ContentDocumentLink();
+            newLink.LinkedEntityId = linkedRecordId;
+            newLink.ContentDocumentId = documentId;
+            newLink.ShareType = 'V';
+            newLink.Visibility = 'AllUsers';
+            linksToInsert.add(newLink);
+        }
+
+        if (!linksToInsert.isEmpty()) {
+            insert linksToInsert;
+        }
     }
 
     private static LayerSlotResponse processLayerSlot(
@@ -308,6 +472,10 @@ public with sharing class ProjectRecordMapController {
 
             addFieldPathIfPresent(selectFieldPaths, filterField == null ? null : filterField.path);
             addFieldPathIfPresent(selectFieldPaths, styleConfig == null ? null : styleConfig.fieldPath);
+
+            if (isSupportedWorkLogSourceObject(objectApiName)) {
+                addFieldPathIfPresent(selectFieldPaths, FEATURE_PLA_FIELD);
+            }
 
             for (PopupFieldConfig popupField : popupFields) {
                 addFieldPathIfPresent(selectFieldPaths, popupField.valueFieldPath);
@@ -427,6 +595,8 @@ public with sharing class ProjectRecordMapController {
         feature.name = toDisplayString(recordItem.get('Name'));
         feature.filterValue = getPathValueAsString(recordItem, filterFieldPath);
         feature.styleValue = getPathValueAsString(recordItem, styleFieldPath);
+        feature.canCreateWorkLog = isSupportedWorkLogSourceObject(objectApiName) &&
+            getPathValue(recordItem, FEATURE_PLA_FIELD) != null;
         feature.popupValues = buildPopupValues(recordItem, popupFields);
 
         if (configuredGeometryType == 'point') {
@@ -611,6 +781,123 @@ public with sharing class ProjectRecordMapController {
         }
 
         return popupFields;
+    }
+
+    private static void populateWorkLogDefaultsFromFeature(
+        WorkLogLaunchResponse response,
+        Id requestedProjectId,
+        Id featureProjectId,
+        Id productionLineAllocationId,
+        sitetracker__Production_Line_Allocation__c productionLineAllocation
+    ) {
+        if (productionLineAllocationId == null || productionLineAllocation == null) {
+            throw handledException('The selected record does not have a related Production Line Allocation.');
+        }
+
+        response.productionLineAllocationId = productionLineAllocationId;
+        response.productionPlanLineId = productionLineAllocation.sitetracker__Production_Plan_Line__c;
+        response.serviceId = productionLineAllocation.sitetracker__Production_Plan_Line__r == null
+            ? null
+            : productionLineAllocation.sitetracker__Production_Plan_Line__r.sitetracker__Item__c;
+        response.jobId = productionLineAllocation.sitetracker__Job__c;
+        response.activityId = productionLineAllocation.sitetracker__Activity__c;
+
+        Id planLineProjectId = productionLineAllocation.sitetracker__Production_Plan_Line__r == null
+            ? null
+            : productionLineAllocation.sitetracker__Production_Plan_Line__r.sitetracker__Project__c;
+
+        if (requestedProjectId != null &&
+            planLineProjectId != null &&
+            requestedProjectId != planLineProjectId) {
+            response.warnings.add(
+                'The selected record is tied to a different Project than the current page. ' +
+                'The Work Log will use the Project from the Production Plan Line.'
+            );
+        }
+
+        response.projectId = planLineProjectId != null
+            ? planLineProjectId
+            : (requestedProjectId != null ? requestedProjectId : featureProjectId);
+
+        if (response.projectId == null) {
+            throw handledException(
+                'A Project could not be determined for the new Work Log.'
+            );
+        }
+
+        if (response.productionPlanLineId == null) {
+            throw handledException(
+                'The related Production Line Allocation does not have a Production Plan Line.'
+            );
+        }
+
+        if (response.serviceId == null) {
+            throw handledException(
+                'The related Production Plan Line does not have a Service.'
+            );
+        }
+    }
+
+    private static List<WorkLogFormField> getCreateableFieldSetFields(
+        String objectApiName,
+        String fieldSetApiName,
+        List<String> warnings
+    ) {
+        Schema.DescribeSObjectResult describeResult = getObjectDescribe(objectApiName);
+        Map<String, Schema.FieldSet> fieldSetMap = describeResult.fieldSets.getMap();
+
+        if (!fieldSetMap.containsKey(fieldSetApiName)) {
+            throw handledException(
+                'Field Set was not found on ' + objectApiName + ': ' + fieldSetApiName
+            );
+        }
+
+        List<WorkLogFormField> formFields = new List<WorkLogFormField>();
+        Set<String> seenFieldApiNames = new Set<String>();
+        Map<String, Schema.SObjectField> fieldMap = describeResult.fields.getMap();
+
+        for (Schema.FieldSetMember member : fieldSetMap.get(fieldSetApiName).getFields()) {
+            String fieldApiName = normalizeString(member.getFieldPath());
+
+            if (String.isBlank(fieldApiName) || seenFieldApiNames.contains(fieldApiName)) {
+                continue;
+            }
+
+            if (fieldApiName.contains('.')) {
+                warnings.add(
+                    'Skipped field set entry "' + fieldApiName + '" because relationship paths are not supported in the create form.'
+                );
+                continue;
+            }
+
+            if (!fieldMap.containsKey(fieldApiName)) {
+                warnings.add(
+                    'Skipped field set entry "' + fieldApiName + '" because the field was not found on ' + objectApiName + '.'
+                );
+                continue;
+            }
+
+            Schema.DescribeFieldResult fieldDescribe = fieldMap.get(fieldApiName).getDescribe();
+            if (!fieldDescribe.isCreateable()) {
+                warnings.add(
+                    'Skipped field "' + fieldDescribe.getLabel() + '" because it is not createable.'
+                );
+                continue;
+            }
+
+            seenFieldApiNames.add(fieldApiName);
+
+            WorkLogFormField formField = new WorkLogFormField();
+            formField.apiName = fieldApiName;
+            formField.label = fieldDescribe.getLabel();
+            formFields.add(formField);
+        }
+
+        return formFields;
+    }
+
+    private static Boolean isSupportedWorkLogSourceObject(String objectApiName) {
+        return objectApiName == SITE_OBJECT_API || objectApiName == SEGMENT_OBJECT_API;
     }
 
     private static void validateMapLayer(sitetracker__Map_Layer__c mapLayer) {
