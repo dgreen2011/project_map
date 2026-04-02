@@ -76,20 +76,20 @@ export default class ProjectRecordMap extends LightningElement {
     return this.uiLayers.length > 0;
   }
 
-  get showLayerPanelToggle() {
-    return this.hasLayerPanels;
-  }
-
   get showSidePanel() {
     return this.hasLayerPanels && !this.isSidebarCollapsed;
   }
 
-  get layerPanelToggleLabel() {
-    return this.isSidebarCollapsed ? "Show Layers" : "Hide Layers";
+  get showCollapsedSidebarHandle() {
+    return this.hasLayerPanels && this.isSidebarCollapsed;
   }
 
-  get layerPanelToggleIconName() {
+  get sidebarToggleIconName() {
     return this.isSidebarCollapsed ? "utility:chevronright" : "utility:chevronleft";
+  }
+
+  get sidebarToggleTitle() {
+    return this.isSidebarCollapsed ? "Show Layers" : "Hide Layers";
   }
 
   get contentGridClass() {
@@ -272,6 +272,7 @@ export default class ProjectRecordMap extends LightningElement {
 
     this.isLoading = true;
     this.errorMessage = "";
+    this.closeAllFilterMenus();
 
     try {
       const response = await getProjectMapData({
@@ -302,7 +303,7 @@ export default class ProjectRecordMap extends LightningElement {
     const responseLayers = Array.isArray(response?.layers) ? response.layers : [];
 
     this.uiLayers = responseLayers.map((layer) => {
-      const normalizedLayer = this.normalizeLayerResponse(layer);
+      let normalizedLayer = this.normalizeLayerResponse(layer);
 
       const priorVisible = previousVisibilityBySlot[normalizedLayer.slotNumber];
       if (typeof priorVisible === "boolean") {
@@ -316,6 +317,11 @@ export default class ProjectRecordMap extends LightningElement {
       ) {
         normalizedLayer.selectedFilterValue = priorFilter;
       }
+
+      normalizedLayer = this.applyFilterMenuState(normalizedLayer, {
+        preserveSearchText: false,
+        preserveMenuState: false
+      });
 
       normalizedLayer.visibleFeatureCount = this.getFilteredFeatures(normalizedLayer).length;
       return normalizedLayer;
@@ -358,6 +364,10 @@ export default class ProjectRecordMap extends LightningElement {
       features: safeFeatures.map((feature) => this.normalizeFeatureResponse(feature)),
       isVisible: true,
       selectedFilterValue: ALL_FILTER_VALUE,
+      selectedFilterLabel: "All",
+      filterSearchText: "",
+      filteredFilterOptions: [],
+      isFilterMenuOpen: false,
       visibleFeatureCount: 0
     };
 
@@ -373,7 +383,10 @@ export default class ProjectRecordMap extends LightningElement {
       }))
     ];
 
-    return normalizedLayer;
+    return this.applyFilterMenuState(normalizedLayer, {
+      preserveSearchText: false,
+      preserveMenuState: false
+    });
   }
 
   normalizeFeatureResponse(feature) {
@@ -414,6 +427,30 @@ export default class ProjectRecordMap extends LightningElement {
     };
   }
 
+  applyFilterMenuState(layer, { preserveSearchText = true, preserveMenuState = true } = {}) {
+    const selectedOption =
+      layer.filterControlOptions.find((option) => option.value === layer.selectedFilterValue) ||
+      layer.filterControlOptions[0] || { label: "All", value: ALL_FILTER_VALUE };
+
+    const filterSearchText = preserveSearchText ? layer.filterSearchText || "" : "";
+    const normalizedSearch = this.normalizeString(filterSearchText) || "";
+    const loweredSearch = normalizedSearch.toLowerCase();
+
+    const filteredFilterOptions = loweredSearch
+      ? layer.filterControlOptions.filter((option) =>
+          option.label.toLowerCase().includes(loweredSearch)
+        )
+      : layer.filterControlOptions;
+
+    return {
+      ...layer,
+      selectedFilterLabel: selectedOption.label,
+      filterSearchText,
+      filteredFilterOptions,
+      isFilterMenuOpen: preserveMenuState ? Boolean(layer.isFilterMenuOpen) : false
+    };
+  }
+
   getFilteredFeatures(layer) {
     if (!layer?.isVisible) {
       return [];
@@ -424,6 +461,21 @@ export default class ProjectRecordMap extends LightningElement {
     }
 
     return layer.features.filter((feature) => feature.filterValue === layer.selectedFilterValue);
+  }
+
+  closeAllFilterMenus() {
+    this.uiLayers = this.uiLayers.map((layer) =>
+      this.applyFilterMenuState(
+        {
+          ...layer,
+          isFilterMenuOpen: false
+        },
+        {
+          preserveSearchText: false,
+          preserveMenuState: true
+        }
+      )
+    );
   }
 
   clearRenderedFeatures() {
@@ -873,34 +925,42 @@ export default class ProjectRecordMap extends LightningElement {
       .filter((point) => Array.isArray(point));
   }
 
+  buildRecordUrl(layer, feature) {
+    if (!feature?.recordId) {
+      return "#";
+    }
+
+    if (layer?.objectApiName) {
+      return `/lightning/r/${encodeURIComponent(layer.objectApiName)}/${encodeURIComponent(
+        feature.recordId
+      )}/view`;
+    }
+
+    return `/${encodeURIComponent(feature.recordId)}`;
+  }
+
   buildPopupHtml(layer, feature) {
     const popupValues = Array.isArray(feature?.popupValues) ? feature.popupValues : [];
     const escapedName = this.escapeHtml(feature?.name || layer?.mapLayerName || "Record");
+    const escapedUrl = this.escapeHtml(this.buildRecordUrl(layer, feature));
 
     const detailRows = popupValues
       .map((popupValue) => {
-        const label = this.escapeHtml(popupValue?.label || "");
         const value = this.escapeHtml(this.formatPopupValue(popupValue));
-        if (!label || !value) {
+        if (!value) {
           return "";
         }
 
-        return `
-          <div class="prm-popup-row">
-            <div class="prm-popup-label">${label}</div>
-            <div class="prm-popup-value">${value}</div>
-          </div>
-        `;
+        return `<div class="prm-popup-value-only">${value}</div>`;
       })
       .filter((markup) => Boolean(markup))
       .join("");
 
-    const objectLabel = this.escapeHtml(layer?.objectApiName || "");
-
     return `
       <div class="prm-popup">
-        <div class="prm-popup-title">${escapedName}</div>
-        ${objectLabel ? `<div class="prm-popup-subtitle">${objectLabel}</div>` : ""}
+        <a class="prm-popup-title-link" href="${escapedUrl}" target="_blank" rel="noopener noreferrer">
+          ${escapedName}
+        </a>
         ${detailRows || '<div class="prm-popup-empty">No popup details configured.</div>'}
       </div>
     `;
@@ -924,6 +984,7 @@ export default class ProjectRecordMap extends LightningElement {
     const slotNumber = Number(event.target.dataset.slot);
     const isVisible = event.target.checked;
 
+    this.closeAllFilterMenus();
     this.uiLayers = this.uiLayers.map((layer) =>
       layer.slotNumber === slotNumber ? { ...layer, isVisible } : layer
     );
@@ -931,18 +992,82 @@ export default class ProjectRecordMap extends LightningElement {
     this.renderVisibleFeatures({ fitToBounds: true });
   }
 
-  handleFilterChange(event) {
+  handleToggleFilterMenu(event) {
+    const slotNumber = Number(event.currentTarget.dataset.slot);
+
+    this.uiLayers = this.uiLayers.map((layer) => {
+      const shouldOpen = layer.slotNumber === slotNumber ? !layer.isFilterMenuOpen : false;
+      return this.applyFilterMenuState(
+        {
+          ...layer,
+          isFilterMenuOpen: shouldOpen,
+          filterSearchText: shouldOpen ? "" : layer.filterSearchText
+        },
+        {
+          preserveSearchText: shouldOpen,
+          preserveMenuState: true
+        }
+      );
+    });
+  }
+
+  handleFilterSearchInput(event) {
     const slotNumber = Number(event.target.dataset.slot);
-    const selectedFilterValue = event.detail.value;
+    const searchText = event.target.value || "";
 
     this.uiLayers = this.uiLayers.map((layer) =>
-      layer.slotNumber === slotNumber ? { ...layer, selectedFilterValue } : layer
+      layer.slotNumber === slotNumber
+        ? this.applyFilterMenuState(
+            {
+              ...layer,
+              filterSearchText: searchText,
+              isFilterMenuOpen: true
+            },
+            {
+              preserveSearchText: true,
+              preserveMenuState: true
+            }
+          )
+        : layer
     );
+  }
+
+  handleFilterOptionSelect(event) {
+    const slotNumber = Number(event.currentTarget.dataset.slot);
+    const selectedFilterValue = event.currentTarget.dataset.value;
+
+    this.uiLayers = this.uiLayers.map((layer) => {
+      if (layer.slotNumber !== slotNumber) {
+        return this.applyFilterMenuState(
+          {
+            ...layer,
+            isFilterMenuOpen: false
+          },
+          {
+            preserveSearchText: false,
+            preserveMenuState: true
+          }
+        );
+      }
+
+      return this.applyFilterMenuState(
+        {
+          ...layer,
+          selectedFilterValue,
+          isFilterMenuOpen: false
+        },
+        {
+          preserveSearchText: false,
+          preserveMenuState: true
+        }
+      );
+    });
 
     this.renderVisibleFeatures({ fitToBounds: true });
   }
 
   handleToggleSidebar() {
+    this.closeAllFilterMenus();
     this.isSidebarCollapsed = !this.isSidebarCollapsed;
 
     window.setTimeout(() => {
@@ -961,6 +1086,7 @@ export default class ProjectRecordMap extends LightningElement {
   }
 
   handleRefreshClick() {
+    this.closeAllFilterMenus();
     this.lastRequestSignature = null;
     this.loadProjectMapData();
   }
