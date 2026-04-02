@@ -47,6 +47,7 @@ export default class ProjectRecordMap extends LightningElement {
   lastRequestSignature = null;
 
   isLoading = false;
+  isSidebarCollapsed = false;
   errorMessage = "";
   tileWarningMessage = "";
 
@@ -73,6 +74,26 @@ export default class ProjectRecordMap extends LightningElement {
 
   get hasLayerPanels() {
     return this.uiLayers.length > 0;
+  }
+
+  get showLayerPanelToggle() {
+    return this.hasLayerPanels;
+  }
+
+  get showSidePanel() {
+    return this.hasLayerPanels && !this.isSidebarCollapsed;
+  }
+
+  get layerPanelToggleLabel() {
+    return this.isSidebarCollapsed ? "Show Layers" : "Hide Layers";
+  }
+
+  get layerPanelToggleIconName() {
+    return this.isSidebarCollapsed ? "utility:chevronright" : "utility:chevronleft";
+  }
+
+  get contentGridClass() {
+    return this.isSidebarCollapsed ? "content-grid content-grid-collapsed" : "content-grid";
   }
 
   get showNoConfiguredLayers() {
@@ -352,9 +373,6 @@ export default class ProjectRecordMap extends LightningElement {
       }))
     ];
 
-    normalizedLayer.summaryText = this.buildLayerSummaryText(normalizedLayer);
-    normalizedLayer.styleSummaryText = this.buildStyleSummaryText(normalizedLayer);
-
     return normalizedLayer;
   }
 
@@ -394,29 +412,6 @@ export default class ProjectRecordMap extends LightningElement {
       defaultSymbol,
       uniqueValueRules
     };
-  }
-
-  buildLayerSummaryText(layer) {
-    if (layer.hasError) {
-      return "This layer could not be loaded.";
-    }
-
-    const featureCount = layer.renderedFeatureCount;
-    const skipCount = layer.skippedRecordCount;
-
-    return `${featureCount} feature${featureCount === 1 ? "" : "s"} loaded${
-      skipCount > 0 ? ` • ${skipCount} skipped` : ""
-    }`;
-  }
-
-  buildStyleSummaryText(layer) {
-    const styleFieldLabel = layer?.styleConfig?.fieldLabel;
-    if (!styleFieldLabel) {
-      return "";
-    }
-
-    const optionCount = Array.isArray(layer?.styleValueOptions) ? layer.styleValueOptions.length : 0;
-    return `${styleFieldLabel}${optionCount > 0 ? ` • ${optionCount} value${optionCount === 1 ? "" : "s"}` : ""}`;
   }
 
   getFilteredFeatures(layer) {
@@ -945,6 +940,24 @@ export default class ProjectRecordMap extends LightningElement {
     );
 
     this.renderVisibleFeatures({ fitToBounds: true });
+  }
+
+  handleToggleSidebar() {
+    this.isSidebarCollapsed = !this.isSidebarCollapsed;
+
+    window.setTimeout(() => {
+      if (!this.map) {
+        return;
+      }
+
+      this.map.invalidateSize();
+
+      if (this.renderedFeatureGroup) {
+        this.fitMapToFeatureGroup(this.renderedFeatureGroup);
+      } else {
+        this.resetMapView();
+      }
+    }, 0);
   }
 
   handleRefreshClick() {
