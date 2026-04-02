@@ -26,24 +26,13 @@
 
       <div class="toolbar">
         <div class="toolbar-left">
-          <div class="toolbar-title">Configured Sitetracker Map Layers</div>
+          <div class="toolbar-title">Sitetracker Map Layers</div>
           <template if:true={hasLayerPanels}>
             <div class="toolbar-subtitle">{mapSummaryText}</div>
           </template>
         </div>
 
         <div class="toolbar-right">
-          <template if:true={showLayerPanelToggle}>
-            <lightning-button
-              label={layerPanelToggleLabel}
-              title={layerPanelToggleLabel}
-              icon-name={layerPanelToggleIconName}
-              icon-position="left"
-              onclick={handleToggleSidebar}
-              disabled={isLoading}
-            ></lightning-button>
-          </template>
-
           <lightning-button
             label="Refresh"
             title="Reload the current project map data"
@@ -69,6 +58,18 @@
       <div class={contentGridClass}>
         <template if:true={showSidePanel}>
           <div class="side-panel">
+            <div class="side-panel-header">
+              <div class="side-panel-heading">Layers</div>
+
+              <lightning-button-icon
+                icon-name={sidebarToggleIconName}
+                alternative-text={sidebarToggleTitle}
+                title={sidebarToggleTitle}
+                onclick={handleToggleSidebar}
+                disabled={isLoading}
+              ></lightning-button-icon>
+            </div>
+
             <template for:each={uiLayers} for:item="layer">
               <section key={layer.slotNumber} class="layer-card">
                 <div class="layer-card-header">
@@ -107,13 +108,48 @@
 
                 <template if:true={layer.hasFilterControl}>
                   <div class="filter-block">
-                    <lightning-combobox
-                      label={layer.filterFieldLabel}
-                      value={layer.selectedFilterValue}
-                      options={layer.filterControlOptions}
+                    <div class="filter-label">{layer.filterFieldLabel}</div>
+
+                    <button
+                      class="filter-trigger"
+                      type="button"
                       data-slot={layer.slotNumber}
-                      onchange={handleFilterChange}
-                    ></lightning-combobox>
+                      onclick={handleToggleFilterMenu}
+                    >
+                      <span class="filter-trigger-text">{layer.selectedFilterLabel}</span>
+                      <span class="filter-trigger-icon">▾</span>
+                    </button>
+
+                    <template if:true={layer.isFilterMenuOpen}>
+                      <div class="filter-menu">
+                        <input
+                          class="filter-search-input"
+                          type="search"
+                          placeholder="Search"
+                          value={layer.filterSearchText}
+                          data-slot={layer.slotNumber}
+                          oninput={handleFilterSearchInput}
+                        />
+
+                        <div class="filter-option-list">
+                          <template
+                            for:each={layer.filteredFilterOptions}
+                            for:item="filterOption"
+                          >
+                            <button
+                              key={filterOption.value}
+                              class="filter-option-button"
+                              type="button"
+                              data-slot={layer.slotNumber}
+                              data-value={filterOption.value}
+                              onclick={handleFilterOptionSelect}
+                            >
+                              {filterOption.label}
+                            </button>
+                          </template>
+                        </div>
+                      </div>
+                    </template>
                   </div>
                 </template>
               </section>
@@ -122,6 +158,18 @@
         </template>
 
         <div class="map-panel">
+          <template if:true={showCollapsedSidebarHandle}>
+            <div class="collapsed-sidebar-handle">
+              <lightning-button-icon
+                icon-name={sidebarToggleIconName}
+                alternative-text={sidebarToggleTitle}
+                title={sidebarToggleTitle}
+                onclick={handleToggleSidebar}
+                disabled={isLoading}
+              ></lightning-button-icon>
+            </div>
+          </template>
+
           <div class="map-frame">
             <div data-id="map" class="map-root" style={mapStyle}></div>
           </div>
