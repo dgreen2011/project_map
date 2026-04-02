@@ -1,0 +1,179 @@
+<template>
+  <lightning-card title="Project Record Map" icon-name="standard:location">
+    <div class="shell">
+      <template if:true={isLoading}>
+        <div class="spinner-wrap">
+          <lightning-spinner
+            size="small"
+            alternative-text="Loading project record map"
+          ></lightning-spinner>
+        </div>
+      </template>
+
+      <template if:true={errorMessage}>
+        <div class="message message-error">
+          <div class="message-title">Map Error</div>
+          <div>{errorMessage}</div>
+        </div>
+      </template>
+
+      <template if:true={tileWarningMessage}>
+        <div class="message message-warning">
+          <div class="message-title">Tile Warning</div>
+          <div>{tileWarningMessage}</div>
+        </div>
+      </template>
+
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <div class="toolbar-title">Configured Sitetracker Map Layers</div>
+          <template if:true={hasLayerPanels}>
+            <div class="toolbar-subtitle">{mapSummaryText}</div>
+          </template>
+        </div>
+
+        <div class="toolbar-right">
+          <lightning-button
+            label="Refresh"
+            title="Reload the current project map data"
+            onclick={handleRefreshClick}
+            disabled={isLoading}
+          ></lightning-button>
+        </div>
+      </div>
+
+      <template if:true={showNoConfiguredLayers}>
+        <div class="message message-info">
+          Add one or more Map Layer Record Id values in the Lightning App Builder component
+          settings to render layers on this Project page.
+        </div>
+      </template>
+
+      <template if:true={showNoVisibleFeatures}>
+        <div class="message message-info">
+          No visible features matched the current layer visibility and filter selections.
+        </div>
+      </template>
+
+      <div class="content-grid">
+        <div class="side-panel">
+          <template if:true={hasLayerPanels}>
+            <template for:each={uiLayers} for:item="layer">
+              <section key={layer.slotNumber} class="layer-card">
+                <div class="layer-card-header">
+                  <div class="layer-card-title-wrap">
+                    <div class="layer-card-title">{layer.mapLayerName}</div>
+                    <div class="layer-card-subtitle">
+                      Slot {layer.slotNumber}
+                      <template if:true={layer.objectApiName}>
+                        • {layer.objectApiName}
+                      </template>
+                    </div>
+                  </div>
+
+                  <lightning-input
+                    type="toggle"
+                    variant="label-hidden"
+                    label="Show Layer"
+                    message-toggle-active="Shown"
+                    message-toggle-inactive="Hidden"
+                    checked={layer.isVisible}
+                    data-slot={layer.slotNumber}
+                    onchange={handleLayerVisibilityChange}
+                  ></lightning-input>
+                </div>
+
+                <div class="layer-meta-grid">
+                  <div class="meta-item">
+                    <div class="meta-label">Geometry</div>
+                    <div class="meta-value">{layer.geometryType}</div>
+                  </div>
+
+                  <div class="meta-item">
+                    <div class="meta-label">Layer Type</div>
+                    <div class="meta-value">{layer.layerType}</div>
+                  </div>
+
+                  <div class="meta-item">
+                    <div class="meta-label">Status</div>
+                    <div class="meta-value">{layer.layerStatus}</div>
+                  </div>
+
+                  <div class="meta-item">
+                    <div class="meta-label">Summary</div>
+                    <div class="meta-value">{layer.summaryText}</div>
+                  </div>
+                </div>
+
+                <template if:true={layer.hasError}>
+                  <div class="message message-error layer-inline-message">
+                    <div class="message-title">Layer Error</div>
+                    <div>{layer.errorMessage}</div>
+                  </div>
+                </template>
+
+                <template if:true={layer.hasWarnings}>
+                  <div class="warning-list">
+                    <template for:each={layer.warnings} for:item="warning">
+                      <div key={warning} class="message message-warning layer-inline-message">
+                        <div>{warning}</div>
+                      </div>
+                    </template>
+                  </div>
+                </template>
+
+                <template if:false={layer.hasError}>
+                  <div class="config-block">
+                    <div class="config-label">Project Relationship Field</div>
+                    <div class="config-value">{layer.relationshipFieldPath}</div>
+                    <div class="config-helper">{layer.relationshipFieldSource}</div>
+                  </div>
+
+                  <template if:true={layer.hasFilterControl}>
+                    <div class="filter-block">
+                      <lightning-combobox
+                        label={layer.filterFieldLabel}
+                        value={layer.selectedFilterValue}
+                        options={layer.filterControlOptions}
+                        data-slot={layer.slotNumber}
+                        onchange={handleFilterChange}
+                      ></lightning-combobox>
+                      <div class="config-helper">{layer.filterFieldSource}</div>
+                    </div>
+                  </template>
+
+                  <template if:true={layer.styleSummaryText}>
+                    <div class="config-block">
+                      <div class="config-label">Layer Styling</div>
+                      <div class="config-value">{layer.styleSummaryText}</div>
+                    </div>
+                  </template>
+
+                  <template if:true={layer.popupFields.length}>
+                    <div class="config-block">
+                      <div class="config-label">Popup Fields</div>
+                      <div class="popup-field-list">
+                        <template for:each={layer.popupFields} for:item="popupField">
+                          <div key={popupField.valueFieldPath} class="popup-field-pill">
+                            <span class="popup-field-pill-label">{popupField.label}</span>
+                            <span class="popup-field-pill-value">{popupField.valueFieldPath}</span>
+                          </div>
+                        </template>
+                      </div>
+                    </div>
+                  </template>
+                </template>
+              </section>
+            </template>
+          </template>
+        </div>
+
+        <div class="map-panel">
+          <div class="map-frame">
+            <div data-id="map" class="map-root" style={mapStyle}></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </lightning-card>
+</template>
