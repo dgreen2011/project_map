@@ -1,0 +1,52 @@
+<template>
+  <div class="prm-segment-editor-shell">
+    <div class="prm-segment-editor-header">
+      <div class="prm-segment-editor-title-wrap">
+        <div class="prm-segment-editor-title">Segment completion</div>
+        <div class="prm-segment-editor-subtitle">{helperText}</div>
+      </div>
+
+      <div class="prm-segment-editor-mode-actions">
+        <lightning-button
+          label="Full Segment"
+          variant={fullButtonVariant}
+          onclick={handleSelectFull}
+        ></lightning-button>
+        <lightning-button
+          label="Partial Segment"
+          variant={partialButtonVariant}
+          onclick={handleSelectPartial}
+          disabled={disablePartialModeButton}
+        ></lightning-button>
+      </div>
+    </div>
+
+    <template if:true={isPartialMode}>
+      <div class="prm-segment-editor-toolbar">
+        <lightning-button
+          label="Undo"
+          onclick={handleUndoPartial}
+          disabled={disableUndoButton}
+        ></lightning-button>
+        <lightning-button
+          label="Clear"
+          onclick={handleClearPartial}
+          disabled={disableClearButton}
+        ></lightning-button>
+      </div>
+    </template>
+
+    <template if:true={errorMessage}>
+      <div class="message message-warning">
+        <div class="message-title">Segment Geometry</div>
+        <div>{errorMessage}</div>
+      </div>
+    </template>
+
+    <template if:true={hasSegmentGeometry}>
+      <div class="prm-segment-map-frame">
+        <div data-id="segment-map" class="prm-segment-map-root" style={mapStyle}></div>
+      </div>
+    </template>
+  </div>
+</template>
