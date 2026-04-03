@@ -164,20 +164,20 @@
             </div>
           </template>
 
-          <div class={mapPanelClass}>
-            <template if:true={showCollapsedSidebarHandle}>
-              <div class="collapsed-sidebar-handle">
-                <lightning-button-icon
-                  icon-name={sidebarToggleIconName}
-                  alternative-text={sidebarToggleTitle}
-                  title={sidebarToggleTitle}
-                  onclick={handleToggleSidebar}
-                  disabled={isLoading}
-                ></lightning-button-icon>
-              </div>
-            </template>
+          <template if:true={showInlineMapPanel}>
+            <div class="map-panel">
+              <template if:true={showCollapsedSidebarHandle}>
+                <div class="collapsed-sidebar-handle">
+                  <lightning-button-icon
+                    icon-name={sidebarToggleIconName}
+                    alternative-text={sidebarToggleTitle}
+                    title={sidebarToggleTitle}
+                    onclick={handleToggleSidebar}
+                    disabled={isLoading}
+                  ></lightning-button-icon>
+                </div>
+              </template>
 
-            <div class={mapExpandTargetClass} data-id="map-expand-target">
               <div class="map-overlay-actions">
                 <button
                   class="map-expand-button"
@@ -194,11 +194,53 @@
                 <div data-id="map" class="map-root" style={mapStyle} lwc:dom="manual"></div>
               </div>
             </div>
-          </div>
+          </template>
         </div>
       </div>
     </div>
   </lightning-card>
+
+  <template if:true={isMapExpanded}>
+    <section class="map-popout-shell" role="dialog" aria-modal="true" aria-label="Expanded project map">
+      <div class="map-popout-backdrop" onclick={handleCloseMapExpanded}></div>
+
+      <div class="map-popout-panel">
+        <div class="map-popout-header">
+          <div class="map-popout-title-wrap">
+            <div class="map-popout-title">Project Map</div>
+            <template if:true={hasLayerPanels}>
+              <div class="map-popout-subtitle">{mapSummaryText}</div>
+            </template>
+          </div>
+
+          <div class="map-popout-actions">
+            <lightning-button
+              label="Refresh"
+              title="Reload the current project map data"
+              onclick={handleRefreshClick}
+              disabled={isLoading}
+            ></lightning-button>
+
+            <button
+              class="map-expand-button map-expand-button-close"
+              type="button"
+              title="Close expanded map"
+              aria-label="Close expanded map"
+              onclick={handleCloseMapExpanded}
+            >
+              <span class="map-expand-button-icon" aria-hidden="true">×</span>
+            </button>
+          </div>
+        </div>
+
+        <div class="map-popout-body">
+          <div class="map-frame map-frame-popout">
+            <div data-id="map" class="map-root" style={mapStyle} lwc:dom="manual"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </template>
 
   <template if:true={isWorkLogModalOpen}>
     <c-project-record-map-work-log-modal
