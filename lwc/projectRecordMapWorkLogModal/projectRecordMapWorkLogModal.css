@@ -1,0 +1,231 @@
+:host {
+  display: block;
+}
+
+/* Modal shell */
+.prm-work-log-modal-container {
+  width: min(64rem, calc(100vw - 2rem));
+  max-width: 64rem;
+}
+
+.prm-work-log-modal-header {
+  padding: 1.1rem 1.25rem 0.95rem;
+  border-bottom: 1px solid #d8dde6;
+  background: #ffffff;
+}
+
+.prm-work-log-modal-title {
+  font-size: 1.6rem;
+  font-weight: 700;
+  color: #032d60;
+  line-height: 1.2;
+}
+
+.prm-work-log-modal-subtitle {
+  margin-top: 0.45rem;
+  font-size: 1rem;
+  color: #5c5c5c;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.prm-work-log-target-link {
+  color: #0176d3;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.prm-work-log-target-link:hover,
+.prm-work-log-target-link:focus {
+  text-decoration: underline;
+}
+
+.prm-work-log-modal-body {
+  position: relative;
+  padding: 1.15rem 1.25rem 1rem;
+  background: #ffffff;
+  min-height: 10rem;
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.prm-work-log-modal-footer {
+  position: relative;
+  padding: 0.9rem 1.25rem;
+  border-top: 1px solid #d8dde6;
+  background: #fafaf9;
+  box-shadow: none;
+}
+
+.prm-work-log-modal-footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.75rem;
+  width: 100%;
+}
+
+.prm-work-log-modal-backdrop {
+  z-index: 9000;
+}
+
+.slds-modal {
+  z-index: 9001;
+}
+
+/* Utility states */
+.prm-work-log-spinner-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 1rem 0;
+}
+
+.prm-work-log-warning-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.6rem;
+  margin-bottom: 0.9rem;
+}
+
+.prm-work-log-inline-message {
+  margin-bottom: 0.9rem;
+}
+
+/* Context */
+.prm-work-log-context-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.85rem;
+  margin-bottom: 1rem;
+}
+
+.prm-work-log-context-item {
+  border: 1px solid #d8dde6;
+  border-radius: 0.5rem;
+  background: #fafaf9;
+  padding: 0.85rem 0.95rem;
+  min-width: 0;
+}
+
+.prm-work-log-context-label {
+  font-size: 0.74rem;
+  font-weight: 700;
+  color: #5c5c5c;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  margin-bottom: 0.2rem;
+  line-height: 1.3;
+}
+
+.prm-work-log-context-value {
+  font-size: 0.92rem;
+  color: #181818;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+/* Form */
+.prm-work-log-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.85rem 1.1rem;
+}
+
+.prm-work-log-field-cell {
+  min-width: 0;
+}
+
+/* Upload step */
+.prm-work-log-upload-section {
+  border: 1px solid #d8dde6;
+  border-radius: 0.55rem;
+  background: #ffffff;
+  padding: 1rem;
+}
+
+.prm-work-log-upload-heading {
+  font-size: 0.98rem;
+  font-weight: 700;
+  color: #181818;
+  line-height: 1.25;
+  margin-bottom: 0.25rem;
+}
+
+.prm-work-log-upload-help {
+  font-size: 0.83rem;
+  color: #5c5c5c;
+  line-height: 1.45;
+  margin-bottom: 0.9rem;
+}
+
+/* Shared message styles */
+.message {
+  border-radius: 0.45rem;
+  border: 1px solid;
+  padding: 0.75rem 0.85rem;
+  font-size: 0.84rem;
+  line-height: 1.45;
+  word-break: break-word;
+}
+
+.message-title {
+  font-size: 0.78rem;
+  font-weight: 700;
+  margin-bottom: 0.25rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.message-error {
+  color: #8e030f;
+  background: #fef1ee;
+  border-color: #f9c7c0;
+}
+
+.message-warning {
+  color: #6f4a00;
+  background: #fdf6e5;
+  border-color: #f5d98b;
+}
+
+.message-info {
+  color: #16325c;
+  background: #f3f7ff;
+  border-color: #c7d7f7;
+}
+
+.message-success {
+  color: #194e31;
+  background: #edf9f1;
+  border-color: #91d9a6;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+  .prm-work-log-context-grid,
+  .prm-work-log-field-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 640px) {
+  .prm-work-log-modal-container {
+    width: calc(100vw - 1rem);
+  }
+
+  .prm-work-log-modal-header,
+  .prm-work-log-modal-body,
+  .prm-work-log-modal-footer {
+    padding-left: 0.9rem;
+    padding-right: 0.9rem;
+  }
+
+  .prm-work-log-modal-footer-actions {
+    flex-wrap: wrap;
+    justify-content: stretch;
+  }
+
+  .prm-work-log-modal-footer-actions lightning-button {
+    width: 100%;
+  }
+}
