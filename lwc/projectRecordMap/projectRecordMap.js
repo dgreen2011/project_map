@@ -64,6 +64,13 @@ export default class ProjectRecordMap extends LightningElement {
 
   popupActionListenerRegistered = false;
   boundTemplateClickHandler = null;
+  boundDocumentFullscreenChangeHandler = null;
+  boundDocumentKeydownHandler = null;
+  isMapExpanded = false;
+
+  connectedCallback() {
+    this.registerViewportListeners();
+  }
 
   renderedCallback() {
     this.ensurePopupActionListener();
@@ -75,9 +82,14 @@ export default class ProjectRecordMap extends LightningElement {
     this.clearPendingViewportSync();
     this.destroyMap();
     this.removePopupActionListener();
+    this.unregisterViewportListeners();
   }
 
   get mapStyle() {
+    if (this.isMapExpanded) {
+      return "height: calc(100vh - 5.5rem);";
+    }
+
     const rawHeight = Number(this.mapHeightPx);
     const safeHeight = Number.isFinite(rawHeight) && rawHeight >= 180 ? rawHeight : 520;
     return `height: ${safeHeight}px;`;
@@ -92,11 +104,11 @@ export default class ProjectRecordMap extends LightningElement {
   }
 
   get showSidePanel() {
-    return this.hasLayerPanels && !this.isSidebarCollapsed;
+    return this.hasLayerPanels && !this.isSidebarCollapsed && !this.isMapExpanded;
   }
 
   get showCollapsedSidebarHandle() {
-    return this.hasLayerPanels && this.isSidebarCollapsed;
+    return this.hasLayerPanels && this.isSidebarCollapsed && !this.isMapExpanded;
   }
 
   get sidebarToggleIconName() {
@@ -107,8 +119,24 @@ export default class ProjectRecordMap extends LightningElement {
     return this.isSidebarCollapsed ? "Show Layers" : "Hide Layers";
   }
 
+  get mapPanelClass() {
+    return this.isMapExpanded ? "map-panel map-panel-expanded" : "map-panel";
+  }
+
+  get mapExpandTargetClass() {
+    return this.isMapExpanded ? "map-expand-target map-expand-target-expanded" : "map-expand-target";
+  }
+
+  get mapExpandButtonTitle() {
+    return this.isMapExpanded ? "Collapse map" : "Expand map";
+  }
+
+  get mapExpandButtonIcon() {
+    return this.isMapExpanded ? "×" : "⛶";
+  }
+
   get contentGridClass() {
-    return this.isSidebarCollapsed ? "content-grid content-grid-collapsed" : "content-grid";
+    return this.showSidePanel ? "content-grid" : "content-grid content-grid-collapsed";
   }
 
   get showNoConfiguredLayers() {
@@ -162,6 +190,38 @@ export default class ProjectRecordMap extends LightningElement {
 
   get contentSurfaceClass() {
     return this.showInitialLoadingOverlay ? "content-surface content-surface-pending" : "content-surface";
+  }
+
+  registerViewportListeners() {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    if (!this.boundDocumentFullscreenChangeHandler) {
+      this.boundDocumentFullscreenChangeHandler = this.handleDocumentFullscreenChange.bind(this);
+      document.addEventListener("fullscreenchange", this.boundDocumentFullscreenChangeHandler);
+    }
+
+    if (!this.boundDocumentKeydownHandler) {
+      this.boundDocumentKeydownHandler = this.handleDocumentKeydown.bind(this);
+      document.addEventListener("keydown", this.boundDocumentKeydownHandler);
+    }
+  }
+
+  unregisterViewportListeners() {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    if (this.boundDocumentFullscreenChangeHandler) {
+      document.removeEventListener("fullscreenchange", this.boundDocumentFullscreenChangeHandler);
+      this.boundDocumentFullscreenChangeHandler = null;
+    }
+
+    if (this.boundDocumentKeydownHandler) {
+      document.removeEventListener("keydown", this.boundDocumentKeydownHandler);
+      this.boundDocumentKeydownHandler = null;
+    }
   }
 
   ensurePopupActionListener() {
@@ -1115,6 +1175,42 @@ export default class ProjectRecordMap extends LightningElement {
     const popupValues = Array.isArray(feature?.popupValues) ? feature.popupValues : [];
     const escapedName = this.escapeHtml(feature?.name || layer?.mapLayerName || "Record");
     const escapedUrl = this.escapeHtml(this.buildRecordUrl(layer, feature));
+    const popupShellStyle = [
+      "display:flex",
+      "flex-direction:column",
+      "gap:0.7rem",
+      "min-width:13rem",
+      "max-width:17rem",
+      "font-family:'Salesforce Sans',Arial,sans-serif",
+      "color:#181818"
+    ].join(";");
+    const titleLinkStyle = [
+      "font-size:0.96rem",
+      "font-weight:700",
+      "line-height:1.3",
+      "color:#0176d3",
+      "text-decoration:none",
+      "word-break:break-word"
+    ].join(";");
+    const valuesWrapStyle = "display:flex;flex-direction:column;gap:0.38rem;";
+    const valueStyle = "font-size:0.84rem;line-height:1.4;color:#181818;word-break:break-word;";
+    const emptyStyle = "font-size:0.8rem;line-height:1.35;color:#5c5c5c;";
+    const footerStyle = "display:flex;justify-content:flex-end;padding-top:0.2rem;border-top:1px solid #eef1f6;";
+    const actionButtonStyle = [
+      "display:inline-flex",
+      "align-items:center",
+      "gap:0.38rem",
+      "border:1px solid #d8dde6",
+      "border-radius:0.45rem",
+      "background:#ffffff",
+      "color:#0176d3",
+      "padding:0.45rem 0.7rem",
+      "font-size:0.78rem",
+      "font-weight:600",
+      "line-height:1",
+      "cursor:pointer"
+    ].join(";");
+    const actionIconStyle = "font-size:0.92rem;line-height:1;";
 
     const detailRows = popupValues
       .map((popupValue) => {
@@ -1123,16 +1219,15 @@ export default class ProjectRecordMap extends LightningElement {
           return "";
         }
 
-        return `<div class="prm-popup-value-only">${value}</div>`;
+        return `<div style="${valueStyle}">${value}</div>`;
       })
       .filter((markup) => Boolean(markup))
       .join("");
 
     const actionMarkup = this.shouldShowWorkLogAction(layer, feature)
       ? `
-        <div class="prm-popup-footer">
+        <div style="${footerStyle}">
           <button
-            class="prm-popup-action-button"
             type="button"
             title="Create Work Log"
             aria-label="Create Work Log"
@@ -1140,21 +1235,23 @@ export default class ProjectRecordMap extends LightningElement {
             data-record-id="${this.escapeHtml(feature.recordId || "")}"
             data-object-api-name="${this.escapeHtml(feature.targetObjectApiName || layer?.objectApiName || "")}"
             data-feature-name="${escapedName}"
+            style="${actionButtonStyle}"
           >
-            <span class="prm-popup-action-icon">＋</span>
+            <span style="${actionIconStyle}" aria-hidden="true">＋</span>
+            <span>Create Work Log</span>
           </button>
         </div>`
       : "";
 
     return `
-      <div class="prm-popup">
-        <div class="prm-popup-header">
-          <a class="prm-popup-title-link" href="${escapedUrl}" target="_blank" rel="noopener noreferrer">
+      <div style="${popupShellStyle}">
+        <div>
+          <a href="${escapedUrl}" target="_blank" rel="noopener noreferrer" style="${titleLinkStyle}">
             ${escapedName}
           </a>
         </div>
-        <div class="prm-popup-values">
-          ${detailRows || '<div class="prm-popup-empty">No popup details configured.</div>'}
+        <div style="${valuesWrapStyle}">
+          ${detailRows || `<div style="${emptyStyle}">No popup details configured.</div>`}
         </div>
         ${actionMarkup}
       </div>
@@ -1162,6 +1259,7 @@ export default class ProjectRecordMap extends LightningElement {
   }
 
   formatPopupValue(popupValue) {
+
     const rawValue = popupValue?.displayValue ?? "";
     const dataType = this.normalizeString(popupValue?.dataType)?.toUpperCase();
 
@@ -1313,6 +1411,76 @@ export default class ProjectRecordMap extends LightningElement {
     this.closeAllFilterMenus();
     this.lastRequestSignature = null;
     this.loadProjectMapData();
+  }
+
+  async handleToggleMapExpanded() {
+    if (this.isMapExpanded) {
+      await this.exitMapExpanded();
+      return;
+    }
+
+    await this.enterMapExpanded();
+  }
+
+  async enterMapExpanded() {
+    const expandTarget = this.template.querySelector('[data-id="map-expand-target"]');
+    if (!expandTarget) {
+      return;
+    }
+
+    const requestFullscreen = expandTarget.requestFullscreen?.bind(expandTarget);
+    if (requestFullscreen) {
+      try {
+        await requestFullscreen();
+        this.isMapExpanded = true;
+        this.scheduleMapViewportSync({ fitToBounds: false });
+        return;
+      } catch (error) {
+        // fall back to an in-page expanded view below
+      }
+    }
+
+    this.isMapExpanded = true;
+    this.scheduleMapViewportSync({ fitToBounds: false });
+  }
+
+  async exitMapExpanded() {
+    const expandTarget = this.template.querySelector('[data-id="map-expand-target"]');
+    const isNativeFullscreenActive =
+      typeof document !== "undefined" && Boolean(expandTarget && document.fullscreenElement === expandTarget);
+
+    if (isNativeFullscreenActive && document.exitFullscreen) {
+      try {
+        await document.exitFullscreen();
+        return;
+      } catch (error) {
+        // fall back to the in-page collapse below
+      }
+    }
+
+    this.isMapExpanded = false;
+    this.scheduleMapViewportSync({ fitToBounds: false });
+  }
+
+  handleDocumentFullscreenChange() {
+    if (typeof document === "undefined") {
+      return;
+    }
+
+    const expandTarget = this.template.querySelector('[data-id="map-expand-target"]');
+    this.isMapExpanded = Boolean(expandTarget && document.fullscreenElement === expandTarget);
+    this.scheduleMapViewportSync({ fitToBounds: false });
+  }
+
+  handleDocumentKeydown(event) {
+    if (!this.isMapExpanded || typeof document === "undefined") {
+      return;
+    }
+
+    if (event?.key === "Escape" && !document.fullscreenElement) {
+      this.isMapExpanded = false;
+      this.scheduleMapViewportSync({ fitToBounds: false });
+    }
   }
 
   safeParseJson(value) {
