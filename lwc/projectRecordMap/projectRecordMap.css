@@ -286,105 +286,6 @@
   width: 100%;
 }
 
-.map-panel-expanded {
-  z-index: 9100;
-}
-
-.map-expand-target {
-  position: relative;
-  width: 100%;
-}
-
-.map-expand-target-expanded,
-.map-expand-target:fullscreen,
-.map-expand-target:-webkit-full-screen {
-  position: fixed;
-  inset: 1rem;
-  z-index: 9101;
-  background: #ffffff;
-  border: 1px solid #d8dde6;
-  border-radius: 0.65rem;
-  padding: 0.75rem;
-  box-shadow: 0 20px 60px rgb(0 0 0 / 22%);
-}
-
-.map-overlay-actions {
-  position: absolute;
-  top: 0.7rem;
-  right: 0.7rem;
-  z-index: 8;
-  display: flex;
-  align-items: center;
-  justify-content: flex-end;
-}
-
-.map-expand-button {
-  appearance: none;
-  border: 1px solid #d8dde6;
-  border-radius: 0.45rem;
-  background: rgb(255 255 255 / 96%);
-  color: #032d60;
-  width: 2rem;
-  height: 2rem;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  cursor: pointer;
-  box-shadow: 0 2px 8px rgb(0 0 0 / 10%);
-  transition:
-    border-color 120ms ease,
-    background-color 120ms ease,
-    box-shadow 120ms ease,
-    color 120ms ease;
-}
-
-.map-expand-button:hover,
-.map-expand-button:focus-visible {
-  border-color: #0176d3;
-  background: #f3f7ff;
-  color: #0176d3;
-  outline: none;
-  box-shadow: 0 0 0 2px rgb(1 118 211 / 16%);
-}
-
-.map-expand-button-icon {
-  font-size: 1rem;
-  line-height: 1;
-}
-
-.collapsed-sidebar-handle {
-  position: absolute;
-  top: 0.7rem;
-  left: 0.7rem;
-  z-index: 8;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: rgb(255 255 255 / 96%);
-  border: 1px solid #d8dde6;
-  border-radius: 0.45rem;
-  box-shadow: 0 2px 8px rgb(0 0 0 / 10%);
-  padding: 0.1rem;
-}
-
-.map-frame {
-  position: relative;
-  z-index: 0;
-  width: 100%;
-  border: 1px solid #d8dde6;
-  border-radius: 0.45rem;
-  background: #ffffff;
-  overflow: hidden;
-  min-height: 18rem;
-}
-
-.map-expand-target-expanded .map-frame,
-.map-expand-target:fullscreen .map-frame,
-.map-expand-target:-webkit-full-screen .map-frame {
-  height: 100%;
-  min-height: 0;
-}
-
 .map-root {
   position: relative;
   z-index: 0;
@@ -392,6 +293,96 @@
   width: 100%;
   min-height: 18rem;
   background: #eef4fb;
+}
+
+.map-frame-popout {
+  height: 100%;
+  min-height: 0;
+}
+
+.map-frame-popout .map-root {
+  min-height: 0;
+  height: 100%;
+}
+
+.map-popout-shell {
+  position: fixed;
+  inset: 0;
+  z-index: 8800;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2vh 2vw;
+}
+
+.map-popout-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgb(3 45 96 / 32%);
+}
+
+.map-popout-panel {
+  position: relative;
+  z-index: 1;
+  width: min(95vw, 120rem);
+  height: min(95vh, 75rem);
+  display: flex;
+  flex-direction: column;
+  min-height: 22rem;
+  background: #ffffff;
+  border: 1px solid #d8dde6;
+  border-radius: 0.75rem;
+  box-shadow: 0 24px 72px rgb(0 0 0 / 24%);
+  overflow: hidden;
+}
+
+.map-popout-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.85rem;
+  padding: 0.85rem 1rem;
+  border-bottom: 1px solid #d8dde6;
+  background: #ffffff;
+}
+
+.map-popout-title-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 0.18rem;
+  min-width: 0;
+}
+
+.map-popout-title {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #181818;
+  line-height: 1.25;
+}
+
+.map-popout-subtitle {
+  font-size: 0.82rem;
+  color: #5c5c5c;
+  line-height: 1.4;
+}
+
+.map-popout-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.map-popout-body {
+  position: relative;
+  flex: 1 1 auto;
+  min-height: 0;
+  padding: 0.9rem;
+  background: #fafaf9;
+}
+
+.map-expand-button-close .map-expand-button-icon {
+  font-size: 1.15rem;
 }
 
 .message {
@@ -599,5 +590,32 @@
   .layer-card-header {
     flex-direction: column;
     align-items: stretch;
+  }
+}
+
+
+@media (max-width: 900px) {
+  .map-popout-shell {
+    padding: 1.25vh 1.25vw;
+  }
+
+  .map-popout-panel {
+    width: 97vw;
+    height: 96vh;
+  }
+}
+
+@media (max-width: 640px) {
+  .map-popout-header {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .map-popout-actions {
+    justify-content: space-between;
+  }
+
+  .map-popout-body {
+    padding: 0.65rem;
   }
 }
