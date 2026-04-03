@@ -45,7 +45,12 @@
 
     <template if:true={hasSegmentGeometry}>
       <div class="prm-segment-map-frame">
-        <div data-id="segment-map" class="prm-segment-map-root" style={mapStyle}></div>
+        <div
+          data-id="segment-map"
+          class="prm-segment-map-root"
+          style={mapStyle}
+          lwc:dom="manual"
+        ></div>
       </div>
     </template>
   </div>
