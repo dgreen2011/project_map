@@ -5,48 +5,48 @@
         <div class="prm-segment-editor-title">Segment completion</div>
         <div class="prm-segment-editor-subtitle">{helperText}</div>
       </div>
+    </div>
 
-      <div class="prm-segment-editor-actions">
-        <div class="prm-segment-editor-button-group">
-          <button
-            class={fullButtonClass}
-            type="button"
-            onclick={handleSelectFull}
-            aria-pressed={isFullMode}
-          >
-            Full Segment
-          </button>
-          <button
-            class={partialButtonClass}
-            type="button"
-            onclick={handleSelectPartial}
-            aria-pressed={isPartialMode}
-            disabled={disablePartialModeButton}
-          >
-            Partial Segment
-          </button>
-        </div>
+    <div class="prm-segment-editor-mode-row">
+      <div class="prm-segment-editor-button-group">
+        <button
+          class={fullButtonClass}
+          type="button"
+          onclick={handleSelectFull}
+          aria-pressed={isFullMode}
+        >
+          Full Segment
+        </button>
+        <button
+          class={partialButtonClass}
+          type="button"
+          onclick={handleSelectPartial}
+          aria-pressed={isPartialMode}
+          disabled={disablePartialModeButton}
+        >
+          Partial Segment
+        </button>
+      </div>
+    </div>
 
-        <template if:true={isPartialMode}>
-          <div class="prm-segment-editor-button-group prm-segment-editor-button-group-utility">
-            <button
-              class={utilityButtonClass}
-              type="button"
-              onclick={handleUndoPartial}
-              disabled={disableUndoButton}
-            >
-              Undo
-            </button>
-            <button
-              class={utilityButtonClass}
-              type="button"
-              onclick={handleClearPartial}
-              disabled={disableClearButton}
-            >
-              Clear
-            </button>
-          </div>
-        </template>
+    <div class={utilityRowClass}>
+      <div class="prm-segment-editor-button-group prm-segment-editor-button-group-utility">
+        <button
+          class={utilityButtonClass}
+          type="button"
+          onclick={handleUndoPartial}
+          disabled={disableUndoButton}
+        >
+          Undo
+        </button>
+        <button
+          class={utilityButtonClass}
+          type="button"
+          onclick={handleClearPartial}
+          disabled={disableClearButton}
+        >
+          Clear
+        </button>
       </div>
     </div>
 
