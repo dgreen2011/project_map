@@ -85,33 +85,6 @@
           </div>
         </template>
 
-        <template if:true={workLogContext}>
-          <div class="prm-work-log-context-grid">
-            <template if:true={workLogContext.projectName}>
-              <div class="prm-work-log-context-item">
-                <div class="prm-work-log-context-label">Project</div>
-                <div class="prm-work-log-context-value">{workLogContext.projectName}</div>
-              </div>
-            </template>
-
-            <template if:true={workLogContext.productionLineAllocationName}>
-              <div class="prm-work-log-context-item">
-                <div class="prm-work-log-context-label">Production Line Allocation</div>
-                <div class="prm-work-log-context-value">
-                  {workLogContext.productionLineAllocationName}
-                </div>
-              </div>
-            </template>
-
-            <template if:true={workLogContext.serviceName}>
-              <div class="prm-work-log-context-item">
-                <div class="prm-work-log-context-label">Service</div>
-                <div class="prm-work-log-context-value">{workLogContext.serviceName}</div>
-              </div>
-            </template>
-          </div>
-        </template>
-
         <template if:true={showWorkLogForm}>
           <template if:true={workLogSaveError}>
             <div class="message message-error prm-work-log-inline-message">
