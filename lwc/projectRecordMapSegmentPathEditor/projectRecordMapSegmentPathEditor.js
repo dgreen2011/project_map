@@ -65,6 +65,7 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
   fullPathValue = "";
   errorMessage = "";
   interactionMessage = "";
+  hasViewportBeenFitted = false;
 
   renderedCallback() {
     this.ensureBootstrapped();
@@ -142,33 +143,6 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
     return this.partialSelectionPoints.length > 0;
   }
 
-  get helperText() {
-    if (this.hasGeometryError) {
-      return "The Segment geometry could not be read.";
-    }
-
-    if (this.isFullMode) {
-      return "The full Segment will be saved to the Work Log.";
-    }
-
-    if (this.isPartialMode) {
-      if (this.interactionMessage) {
-        return this.interactionMessage;
-      }
-
-      if (this.partialSelectionPoints.length === 0) {
-        return "Click near the start point and end point on the Segment. Your clicks will snap to the Segment line, including the ends.";
-      }
-
-      if (this.partialSelectionPoints.length === 1) {
-        return "Now click near the ending point on the Segment.";
-      }
-
-      return "The highlighted portion will be saved to the Work Log. Click again to start a new selection.";
-    }
-
-    return "Choose Full Segment or Partial Segment.";
-  }
 
   async ensureBootstrapped() {
     if (this.bootstrapPromise) {
@@ -200,6 +174,7 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
   }
 
   initializeStateFromGeometry() {
+    this.hasViewportBeenFitted = false;
     this.fullCoordinateSets = this.extractPolylineCoordinateSets(this.segmentGeometryRaw);
     this.fullPathValue = this.hasSegmentGeometry ? JSON.stringify(this.fullCoordinateSets) : "";
 
@@ -222,8 +197,12 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
     this.map = window.L.map(mapContainer, {
       zoomControl: true,
       attributionControl: false,
-      doubleClickZoom: false,
-      scrollWheelZoom: false
+      doubleClickZoom: true,
+      scrollWheelZoom: true,
+      boxZoom: true,
+      keyboard: true,
+      dragging: true,
+      touchZoom: true
     });
 
     this.tileLayer = window.L.tileLayer(DEFAULT_TILE_URL, {
@@ -262,6 +241,7 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
     this.selectedLayerGroup = null;
     this.boundMapClickHandler = null;
     this.mapReady = false;
+    this.hasViewportBeenFitted = false;
   }
 
   buildModeButtonClass(isActive) {
@@ -605,10 +585,10 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
 
     this.baseLayerGroup.addTo(this.map);
     this.selectedLayerGroup.addTo(this.map);
-    this.scheduleViewportSync();
+    this.scheduleViewportSync({ fitToBounds: !this.hasViewportBeenFitted });
   }
 
-  scheduleViewportSync() {
+  scheduleViewportSync({ fitToBounds = false } = {}) {
     if (!this.map) {
       return;
     }
@@ -630,9 +610,14 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
           this.map.invalidateSize(false);
         }
 
+        if (!fitToBounds) {
+          return;
+        }
+
         const bounds = this.baseLayerGroup?.getBounds();
         if (bounds && bounds.isValid()) {
           this.map.fitBounds(bounds, { padding: DEFAULT_MAP_PADDING });
+          this.hasViewportBeenFitted = true;
         }
       };
 
