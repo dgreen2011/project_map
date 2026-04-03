@@ -55,6 +55,7 @@ export default class ProjectRecordMap extends LightningElement {
   isSidebarCollapsed = false;
   errorMessage = "";
   tileWarningMessage = "";
+  initialLoadComplete = false;
 
   isWorkLogModalOpen = false;
   workLogLaunchContext = null;
@@ -151,6 +152,18 @@ export default class ProjectRecordMap extends LightningElement {
     return this.workLogLaunchContext?.featureName || "";
   }
 
+  get showInitialLoadingOverlay() {
+    return !this.initialLoadComplete;
+  }
+
+  get showInlineSpinner() {
+    return this.isLoading && this.initialLoadComplete;
+  }
+
+  get contentSurfaceClass() {
+    return this.showInitialLoadingOverlay ? "content-surface content-surface-pending" : "content-surface";
+  }
+
   ensurePopupActionListener() {
     if (this.popupActionListenerRegistered) {
       return;
@@ -191,6 +204,7 @@ export default class ProjectRecordMap extends LightningElement {
     })().catch((error) => {
       this.errorMessage = this.reduceError(error);
       this.bootstrapPromise = null;
+      this.markInitialLoadComplete();
       throw error;
     });
 
@@ -314,6 +328,7 @@ export default class ProjectRecordMap extends LightningElement {
       this.clearRenderedFeatures();
       this.resetMapView();
       this.scheduleMapViewportSync({ fitToBounds: false });
+      this.markInitialLoadComplete();
       return;
     }
 
@@ -329,12 +344,15 @@ export default class ProjectRecordMap extends LightningElement {
       this.applyResponse(response);
       await this.waitForLayoutStabilization();
       this.renderVisibleFeatures({ fitToBounds: true });
+      await this.waitForLayoutStabilization();
+      this.markInitialLoadComplete();
     } catch (error) {
       this.errorMessage = this.reduceError(error);
       this.uiLayers = [];
       this.clearRenderedFeatures();
       this.resetMapView();
       this.scheduleMapViewportSync({ fitToBounds: false });
+      this.markInitialLoadComplete();
     } finally {
       this.isLoading = false;
     }
@@ -667,6 +685,23 @@ export default class ProjectRecordMap extends LightningElement {
         window.setTimeout(resolve, 0);
       }
     });
+  }
+
+  markInitialLoadComplete() {
+    if (this.initialLoadComplete) {
+      return;
+    }
+
+    this.initialLoadComplete = true;
+
+    if (this.mapReady) {
+      window.setTimeout(() => {
+        this.scheduleMapViewportSync({
+          fitToBounds: true,
+          fallbackToDefault: true
+        });
+      }, 0);
+    }
   }
 
   createLeafletLayer(layer, feature) {
