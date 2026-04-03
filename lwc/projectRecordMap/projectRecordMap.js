@@ -18,6 +18,8 @@ export default class ProjectRecordMap extends LightningElement {
   @api recordId;
   @api mapHeightPx = 520;
   @api workLogFieldSetApiName;
+  @api siteDetailFieldSetApiName;
+  @api segmentDetailFieldSetApiName;
 
   @api mapLayerRecordId1;
   @api relationshipFieldPathOverride1;
