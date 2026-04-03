@@ -6,6 +6,7 @@
     </types>
     <types>
         <members>projectRecordMap</members>
+        <members>projectRecordMapWorkLogModal</members>
         <name>LightningComponentBundle</name>
     </types>
     <version>63.0</version>
