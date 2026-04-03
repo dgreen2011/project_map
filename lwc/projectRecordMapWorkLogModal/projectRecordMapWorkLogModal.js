@@ -1,5 +1,6 @@
 import { api, LightningElement } from "lwc";
 import { ShowToastEvent } from "lightning/platformShowToastEvent";
+import { NavigationMixin } from "lightning/navigation";
 import getWorkLogLaunchConfig from "@salesforce/apex/ProjectRecordMapController.getWorkLogLaunchConfig";
 import linkUploadedFilesToRecord from "@salesforce/apex/ProjectRecordMapController.linkUploadedFilesToRecord";
 
@@ -38,7 +39,7 @@ const AUTO_HIDDEN_WORK_LOG_FIELDS = new Set([
   WORK_LOG_GIS_PATH_FIELD
 ]);
 
-export default class ProjectRecordMapWorkLogModal extends LightningElement {
+export default class ProjectRecordMapWorkLogModal extends NavigationMixin(LightningElement) {
   @api projectId;
   @api targetRecordId;
   @api targetObjectApiName;
@@ -58,6 +59,8 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
   workLogSuccessMessage = "";
   workLogUploadMessage = "";
   createdWorkLogId = "";
+  resolvedTargetRecordUrl = "";
+  resolvedCreatedWorkLogUrl = "";
 
   workLogContext = null;
   workLogWarnings = [];
@@ -118,18 +121,7 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
   }
 
   get workLogTargetRecordUrl() {
-    const recordId = this.workLogContext?.targetRecordId || this.targetRecordId;
-    const objectApiName = this.workLogContext?.targetObjectApiName || this.targetObjectApiName;
-
-    if (!recordId) {
-      return "";
-    }
-
-    if (objectApiName) {
-      return `/lightning/r/${encodeURIComponent(objectApiName)}/${encodeURIComponent(recordId)}/view`;
-    }
-
-    return `/${encodeURIComponent(recordId)}`;
+    return this.resolvedTargetRecordUrl || "";
   }
 
   get showWorkLogTargetLink() {
@@ -199,6 +191,7 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
       targetName: this.featureName || "",
       targetDetailFields: []
     };
+    void this.refreshWorkLogTargetRecordUrl();
 
     try {
       const response = await getWorkLogLaunchConfig({
@@ -248,6 +241,7 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
     this.workLogWarnings = Array.isArray(context.warnings) ? context.warnings : [];
     this.workLogVisibleFields = fieldModels.visibleFields;
     this.workLogHiddenFields = fieldModels.hiddenFields;
+    void this.refreshWorkLogTargetRecordUrl();
 
     const initialSegmentPathValue = defaultValues[WORK_LOG_GIS_PATH_FIELD] || "";
     this.segmentPathValue = initialSegmentPathValue;
@@ -464,6 +458,7 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
     this.workLogSuccessMessage = this.createdWorkLogId
       ? "The Work Log was created. You can upload files below."
       : "The Work Log was created.";
+    void this.refreshCreatedWorkLogUrl();
 
     this.dispatchToast("Work Log Created", "The Work Log was created successfully.", "success");
   }
@@ -508,14 +503,17 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
     }
   }
 
-  handleOpenCreatedWorkLog() {
+  async handleOpenCreatedWorkLog() {
     if (!this.createdWorkLogId) {
       return;
     }
 
-    const url = `/lightning/r/${encodeURIComponent(WORK_LOG_OBJECT_API_NAME)}/${encodeURIComponent(
-      this.createdWorkLogId
-    )}/view`;
+    const url = this.resolvedCreatedWorkLogUrl ||
+      (await this.generateRecordUrl(this.createdWorkLogId, WORK_LOG_OBJECT_API_NAME));
+    if (!url || typeof window === "undefined") {
+      return;
+    }
+
     window.open(url, "_blank", "noopener");
   }
 
@@ -528,12 +526,46 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
     this.workLogSuccessMessage = "";
     this.workLogUploadMessage = "";
     this.createdWorkLogId = "";
+    this.resolvedTargetRecordUrl = "";
+    this.resolvedCreatedWorkLogUrl = "";
     this.workLogWarnings = [];
     this.workLogVisibleFields = [];
     this.workLogHiddenFields = [];
     this.segmentPathValue = "";
     this.segmentPathValid = false;
     this.segmentSelectionMode = "";
+  }
+
+  async refreshWorkLogTargetRecordUrl() {
+    const recordId = this.workLogContext?.targetRecordId || this.targetRecordId;
+    const objectApiName = this.workLogContext?.targetObjectApiName || this.targetObjectApiName;
+    this.resolvedTargetRecordUrl = await this.generateRecordUrl(recordId, objectApiName);
+  }
+
+  async refreshCreatedWorkLogUrl() {
+    this.resolvedCreatedWorkLogUrl = await this.generateRecordUrl(
+      this.createdWorkLogId,
+      WORK_LOG_OBJECT_API_NAME
+    );
+  }
+
+  async generateRecordUrl(recordId, objectApiName) {
+    if (!recordId) {
+      return "";
+    }
+
+    try {
+      return await this[NavigationMixin.GenerateUrl]({
+        type: "standard__recordPage",
+        attributes: {
+          recordId,
+          objectApiName,
+          actionName: "view"
+        }
+      });
+    } catch (error) {
+      return `/${encodeURIComponent(recordId)}`;
+    }
   }
 
   getObjectTypeLabel(objectApiName) {
