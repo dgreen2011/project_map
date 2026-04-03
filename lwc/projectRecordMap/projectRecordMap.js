@@ -1,8 +1,8 @@
 import { api, LightningElement } from "lwc";
 import { ShowToastEvent } from "lightning/platformShowToastEvent";
 import getProjectMapData from "@salesforce/apex/ProjectRecordMapController.getProjectMapData";
-import getWorkLogModalContext from "@salesforce/apex/ProjectRecordMapController.getWorkLogModalContext";
-import linkUploadedFilesToWorkLogAndFeature from "@salesforce/apex/ProjectRecordMapController.linkUploadedFilesToWorkLogAndFeature";
+import getWorkLogLaunchConfig from "@salesforce/apex/ProjectRecordMapController.getWorkLogLaunchConfig";
+import linkUploadedFilesToRecord from "@salesforce/apex/ProjectRecordMapController.linkUploadedFilesToRecord";
 import { loadScript, loadStyle } from "lightning/platformResourceLoader";
 
 import leafletResource from "@salesforce/resourceUrl/leaflet_1_9_4";
@@ -10,7 +10,7 @@ import leafletResource from "@salesforce/resourceUrl/leaflet_1_9_4";
 const ALL_FILTER_VALUE = "__ALL__";
 const DEFAULT_MAP_CENTER = [39.8283, -98.5795];
 const DEFAULT_MAP_ZOOM = 4;
-const DEFAULT_TILE_URL = "https://tile.openstreetmap.org/{z}/{y}.png";
+const DEFAULT_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const DEFAULT_TILE_ATTRIBUTION = "&copy; OpenStreetMap contributors";
 const DEFAULT_POINT_COLOR = "#2f80ed";
 const DEFAULT_LINE_COLOR = "#0b8f86";
@@ -1190,11 +1190,11 @@ export default class ProjectRecordMap extends LightningElement {
     };
 
     try {
-      const response = await getWorkLogModalContext({
+      const response = await getWorkLogLaunchConfig({
+        featureRecordId: targetRecordId,
+        featureObjectApiName: targetObjectApiName,
         projectId: this.recordId,
-        targetRecordId,
-        targetObjectApiName,
-        workLogFieldSetApiName: this.normalizeString(this.workLogFieldSetApiName)
+        fieldSetApiName: this.normalizeString(this.workLogFieldSetApiName)
       });
 
       this.applyWorkLogContext(response);
@@ -1211,31 +1211,73 @@ export default class ProjectRecordMap extends LightningElement {
       return;
     }
 
-    const defaultValues = this.normalizeWorkLogDefaultValues(context.defaultValues);
+    const defaultValues = this.normalizeWorkLogDefaultValues(context.defaultValues, context);
     const fieldModels = this.buildWorkLogFieldModels(context, defaultValues);
 
     this.workLogContext = {
       ...context,
-      targetTypeLabel: context.targetTypeLabel || this.getObjectTypeLabel(context.targetObjectApiName),
+      targetRecordId: context.targetRecordId || context.featureRecordId,
+      targetObjectApiName: context.targetObjectApiName || context.featureObjectApiName,
+      targetName:
+        context.targetName ||
+        context.featureName ||
+        this.workLogContext?.targetName ||
+        "",
+      targetTypeLabel:
+        context.targetTypeLabel ||
+        this.getObjectTypeLabel(context.targetObjectApiName || context.featureObjectApiName),
       defaultValues
     };
     this.workLogVisibleFields = fieldModels.visibleFields;
     this.workLogHiddenFields = fieldModels.hiddenFields;
   }
 
-  normalizeWorkLogDefaultValues(defaultValues) {
+  normalizeWorkLogDefaultValues(defaultValues, context = {}) {
     const safeDefaults = defaultValues && typeof defaultValues === "object" ? defaultValues : {};
     const normalizedDefaults = { ...safeDefaults };
 
-    if (!normalizedDefaults[WORK_LOG_STATUS_FIELD]) {
-      normalizedDefaults[WORK_LOG_STATUS_FIELD] = "Draft";
+    if (context.projectId) {
+      normalizedDefaults[WORK_LOG_PROJECT_FIELD] = context.projectId;
     }
+    if (context.productionLineAllocationId) {
+      normalizedDefaults[WORK_LOG_PLA_FIELD] = context.productionLineAllocationId;
+    }
+    if (context.productionPlanLineId) {
+      normalizedDefaults[WORK_LOG_PPL_FIELD] = context.productionPlanLineId;
+    }
+    if (context.serviceId) {
+      normalizedDefaults[WORK_LOG_SERVICE_FIELD] = context.serviceId;
+    }
+    if (context.jobId) {
+      normalizedDefaults[WORK_LOG_JOB_FIELD] = context.jobId;
+    }
+    if (context.activityId) {
+      normalizedDefaults[WORK_LOG_ACTIVITY_FIELD] = context.activityId;
+    }
+    if (context.siteId) {
+      normalizedDefaults[WORK_LOG_SITE_FIELD] = context.siteId;
+    }
+    if (context.segmentId) {
+      normalizedDefaults[WORK_LOG_SEGMENT_FIELD] = context.segmentId;
+    }
+    if (context.startDateIso) {
+      normalizedDefaults[WORK_LOG_START_DATE_FIELD] = context.startDateIso;
+    }
+    if (context.endDateIso) {
+      normalizedDefaults[WORK_LOG_END_DATE_FIELD] = context.endDateIso;
+    }
+    normalizedDefaults[WORK_LOG_STATUS_FIELD] =
+      context.statusValue || normalizedDefaults[WORK_LOG_STATUS_FIELD] || "Draft";
 
     return normalizedDefaults;
   }
 
   buildWorkLogFieldModels(context, defaultValues) {
-    const rawFieldSetFields = Array.isArray(context?.fieldSetFields) ? context.fieldSetFields : [];
+    const rawFieldSetFields = Array.isArray(context?.fieldSetFields)
+      ? context.fieldSetFields
+      : Array.isArray(context?.formFields)
+        ? context.formFields
+        : [];
     const orderedFieldApiNames = rawFieldSetFields
       .map((fieldItem) => fieldItem?.apiName || fieldItem?.fieldApiName || fieldItem?.fullName)
       .filter((apiName) => Boolean(apiName));
@@ -1471,10 +1513,9 @@ export default class ProjectRecordMap extends LightningElement {
     this.workLogUploadMessage = "Linking uploaded files...";
 
     try {
-      await linkUploadedFilesToWorkLogAndFeature({
-        workLogId: this.createdWorkLogId,
-        targetRecordId: this.workLogContext?.targetRecordId,
-        contentDocumentIds
+      await linkUploadedFilesToRecord({
+        contentDocumentIds,
+        linkedRecordId: this.workLogContext?.targetRecordId || this.workLogContext?.featureRecordId
       });
 
       const fileLabel = uploadedFiles.length === 1 ? "file was" : "files were";
