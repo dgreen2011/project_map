@@ -7,7 +7,7 @@ const DEFAULT_MAP_HEIGHT_PX = 220;
 const DEFAULT_MAP_PADDING = [18, 18];
 const DEFAULT_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const DEFAULT_TILE_ATTRIBUTION = "&copy; OpenStreetMap contributors";
-const SNAP_TOLERANCE_PX = 22;
+const SNAP_TOLERANCE_PX = 34;
 const SELECTION_MODE_NONE = "";
 const SELECTION_MODE_FULL = "full";
 const SELECTION_MODE_PARTIAL = "partial";
@@ -26,10 +26,18 @@ const SELECTED_LINE_STYLE = {
   lineJoin: "round"
 };
 const SELECTION_POINT_STYLE = {
-  radius: 5,
+  radius: 6,
   color: "#0176d3",
   weight: 2,
   opacity: 1,
+  fillColor: "#ffffff",
+  fillOpacity: 1
+};
+const ENDPOINT_POINT_STYLE = {
+  radius: 7,
+  color: "#5b7ca0",
+  weight: 2,
+  opacity: 0.95,
   fillColor: "#ffffff",
   fillOpacity: 1
 };
@@ -97,6 +105,15 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
     return "prm-segment-editor-button prm-segment-editor-button-utility";
   }
 
+  get utilityRowClass() {
+    return [
+      "prm-segment-editor-utility-row",
+      this.isPartialMode ? "" : "prm-segment-editor-utility-row-hidden"
+    ]
+      .filter((className) => Boolean(className))
+      .join(" ");
+  }
+
   get hasSegmentGeometry() {
     return Array.isArray(this.fullCoordinateSets) && this.fullCoordinateSets.length > 0;
   }
@@ -140,11 +157,11 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
       }
 
       if (this.partialSelectionPoints.length === 0) {
-        return "Click the start point and end point on the Segment. The saved path will stay on the Segment line.";
+        return "Click near the start point and end point on the Segment. Your clicks will snap to the Segment line, including the ends.";
       }
 
       if (this.partialSelectionPoints.length === 1) {
-        return "Now click the end point on the Segment.";
+        return "Now click near the ending point on the Segment.";
       }
 
       return "The highlighted portion will be saved to the Work Log. Click again to start a new selection.";
@@ -316,7 +333,7 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
 
     const snapPoint = this.findClosestSnapPoint(event?.latlng, preferredCoordinateSetIndex);
     if (!snapPoint) {
-      this.interactionMessage = "Click directly on the Segment line to select the completed portion.";
+      this.interactionMessage = "Click near the Segment line or its ends. The saved path will snap back onto the Segment.";
       this.notifySelectionChange();
       return;
     }
@@ -560,6 +577,19 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
     }
 
     if (this.isPartialMode) {
+      this.fullCoordinateSets.forEach((coordinateSet) => {
+        const endpointCoordinates = [coordinateSet?.[0], coordinateSet?.[coordinateSet.length - 1]].filter(
+          (coordinate) => Array.isArray(coordinate)
+        );
+
+        endpointCoordinates.forEach((endpointCoordinate) => {
+          const endpointLatLng = this.toLatLngs([endpointCoordinate])[0];
+          if (endpointLatLng) {
+            this.selectedLayerGroup.addLayer(window.L.circleMarker(endpointLatLng, ENDPOINT_POINT_STYLE));
+          }
+        });
+      });
+
       const partialLatLngs = this.toLatLngs(this.partialPathCoordinates);
       if (partialLatLngs.length >= 2) {
         this.selectedLayerGroup.addLayer(window.L.polyline(partialLatLngs, SELECTED_LINE_STYLE));
