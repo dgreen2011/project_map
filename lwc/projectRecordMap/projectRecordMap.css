@@ -252,6 +252,8 @@
   position: relative;
   z-index: 0;
   min-width: 0;
+  display: flex;
+  width: 100%;
 }
 
 .collapsed-sidebar-handle {
@@ -272,6 +274,7 @@
 .map-frame {
   position: relative;
   z-index: 0;
+  width: 100%;
   border: 1px solid #d8dde6;
   border-radius: 0.45rem;
   background: #ffffff;
@@ -282,8 +285,10 @@
 .map-root {
   position: relative;
   z-index: 0;
+  display: block;
   width: 100%;
   min-height: 18rem;
+  background: #eef4fb;
 }
 
 .message {
@@ -357,6 +362,25 @@
   text-decoration: underline;
 }
 
+.prm-popup-values {
+  display: flex;
+  flex-direction: column;
+  gap: 0.35rem;
+}
+
+.prm-popup-value-only {
+  font-size: 0.82rem;
+  color: #181818;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.prm-popup-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding-top: 0.15rem;
+}
+
 .prm-popup-action-button {
   border: 1px solid #d8dde6;
   background: #fff;
@@ -388,153 +412,10 @@
   line-height: 1;
 }
 
-.prm-popup-values {
-  display: flex;
-  flex-direction: column;
-  gap: 0.35rem;
-}
-
-.prm-popup-value-only {
-  font-size: 0.82rem;
-  color: #181818;
-  line-height: 1.4;
-  word-break: break-word;
-}
-
-.prm-popup-footer {
-  display: flex;
-  justify-content: flex-end;
-  padding-top: 0.15rem;
-}
-
 .prm-popup-empty {
   font-size: 0.8rem;
   color: #5c5c5c;
   line-height: 1.35;
-}
-
-/* Work Log modal */
-.work-log-modal-container {
-  max-width: 56rem;
-  width: min(56rem, calc(100vw - 2rem));
-}
-
-.work-log-modal-header {
-  padding-bottom: 0.85rem;
-}
-
-.work-log-modal-subtitle {
-  margin-top: 0.35rem;
-  font-size: 0.84rem;
-  color: #5c5c5c;
-  line-height: 1.35;
-}
-
-.work-log-modal-body {
-  position: relative;
-  min-height: 10rem;
-  max-height: 75vh;
-  overflow: auto;
-}
-
-.work-log-modal-spinner-wrap,
-.work-log-upload-spinner-wrap {
-  display: flex;
-  justify-content: center;
-  padding: 0.75rem 0;
-}
-
-.work-log-context-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(12rem, 1fr));
-  gap: 0.75rem;
-  margin-bottom: 1rem;
-}
-
-.work-log-context-item {
-  border: 1px solid #d8dde6;
-  border-radius: 0.45rem;
-  background: #fafaf9;
-  padding: 0.7rem 0.8rem;
-}
-
-.work-log-context-label {
-  font-size: 0.72rem;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-  color: #5c5c5c;
-  margin-bottom: 0.2rem;
-}
-
-.work-log-context-value {
-  font-size: 0.88rem;
-  color: #181818;
-  line-height: 1.35;
-  word-break: break-word;
-}
-
-.work-log-field-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.85rem 1rem;
-}
-
-.work-log-field-cell {
-  min-width: 0;
-}
-
-.work-log-inline-message {
-  margin-bottom: 0.9rem;
-}
-
-.work-log-modal-footer {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 0.5rem;
-  padding-left: 0;
-  padding-right: 0;
-  padding-bottom: 0;
-  margin-top: 1rem;
-}
-
-.work-log-upload-section {
-  border: 1px solid #d8dde6;
-  border-radius: 0.5rem;
-  background: #fff;
-  padding: 0.95rem 1rem 1rem;
-}
-
-.work-log-upload-heading {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: #181818;
-  line-height: 1.25;
-  margin-bottom: 0.2rem;
-}
-
-.work-log-upload-help {
-  font-size: 0.82rem;
-  color: #5c5c5c;
-  line-height: 1.45;
-  margin-bottom: 0.85rem;
-}
-
-.work-log-created-actions {
-  display: flex;
-  justify-content: flex-end;
-  align-items: center;
-  gap: 0.5rem;
-  margin-top: 1rem;
-}
-
-.work-log-modal-backdrop {
-  z-index: 9000;
-}
-
-.slds-modal {
-  z-index: 9001;
 }
 
 /* Keep the map under the Lightning page chrome/tabs */
@@ -590,12 +471,6 @@
   }
 }
 
-@media (max-width: 900px) {
-  .work-log-field-grid {
-    grid-template-columns: 1fr;
-  }
-}
-
 @media (max-width: 800px) {
   .content-grid,
   .content-grid-collapsed {
@@ -605,11 +480,6 @@
   .collapsed-sidebar-handle {
     top: 0.6rem;
     left: 0.6rem;
-  }
-
-  .work-log-created-actions,
-  .work-log-modal-footer {
-    flex-wrap: wrap;
   }
 }
 
@@ -626,13 +496,5 @@
   .layer-card-header {
     flex-direction: column;
     align-items: stretch;
-  }
-
-  .work-log-modal-container {
-    width: calc(100vw - 1rem);
-  }
-
-  .work-log-context-grid {
-    grid-template-columns: 1fr;
   }
 }
