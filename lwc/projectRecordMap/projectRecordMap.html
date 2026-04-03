@@ -1,177 +1,185 @@
 <template>
   <lightning-card title="Project Record Map" icon-name="standard:location">
     <div class="shell">
-      <template if:true={isLoading}>
-        <div class="spinner-wrap">
-          <lightning-spinner
-            size="small"
-            alternative-text="Loading project record map"
-          ></lightning-spinner>
+      <template if:true={showInitialLoadingOverlay}>
+        <div class="initial-loading-overlay" aria-live="polite">
+          <div class="initial-loading-text">Loading...</div>
         </div>
       </template>
 
-      <template if:true={errorMessage}>
-        <div class="message message-error">
-          <div class="message-title">Map Error</div>
-          <div>{errorMessage}</div>
-        </div>
-      </template>
-
-      <template if:true={tileWarningMessage}>
-        <div class="message message-warning">
-          <div class="message-title">Tile Warning</div>
-          <div>{tileWarningMessage}</div>
-        </div>
-      </template>
-
-      <div class="toolbar">
-        <div class="toolbar-left">
-          <div class="toolbar-title">Sitetracker Map Layers</div>
-          <template if:true={hasLayerPanels}>
-            <div class="toolbar-subtitle">{mapSummaryText}</div>
-          </template>
-        </div>
-
-        <div class="toolbar-right">
-          <lightning-button
-            label="Refresh"
-            title="Reload the current project map data"
-            onclick={handleRefreshClick}
-            disabled={isLoading}
-          ></lightning-button>
-        </div>
-      </div>
-
-      <template if:true={showNoConfiguredLayers}>
-        <div class="message message-info">
-          Add one or more Map Layer Record Id values in the Lightning App Builder component
-          settings to render layers on this Project page.
-        </div>
-      </template>
-
-      <template if:true={showNoVisibleFeatures}>
-        <div class="message message-info">
-          No visible features matched the current layer visibility and filter selections.
-        </div>
-      </template>
-
-      <div class={contentGridClass}>
-        <template if:true={showSidePanel}>
-          <div class="side-panel">
-            <div class="side-panel-header">
-              <div class="side-panel-heading">Layers</div>
-
-              <lightning-button-icon
-                icon-name={sidebarToggleIconName}
-                alternative-text={sidebarToggleTitle}
-                title={sidebarToggleTitle}
-                onclick={handleToggleSidebar}
-                disabled={isLoading}
-              ></lightning-button-icon>
-            </div>
-
-            <template for:each={uiLayers} for:item="layer">
-              <section key={layer.slotNumber} class="layer-card">
-                <div class="layer-card-header">
-                  <div class="layer-card-title-wrap">
-                    <div class="layer-card-title">{layer.mapLayerName}</div>
-                  </div>
-
-                  <lightning-input
-                    type="toggle"
-                    variant="label-hidden"
-                    label="Show Layer"
-                    message-toggle-active="Shown"
-                    message-toggle-inactive="Hidden"
-                    checked={layer.isVisible}
-                    data-slot={layer.slotNumber}
-                    onchange={handleLayerVisibilityChange}
-                  ></lightning-input>
-                </div>
-
-                <template if:true={layer.hasError}>
-                  <div class="message message-error layer-inline-message">
-                    <div class="message-title">Layer Error</div>
-                    <div>{layer.errorMessage}</div>
-                  </div>
-                </template>
-
-                <template if:true={layer.hasWarnings}>
-                  <div class="warning-list">
-                    <template for:each={layer.warnings} for:item="warning">
-                      <div key={warning} class="message message-warning layer-inline-message">
-                        <div>{warning}</div>
-                      </div>
-                    </template>
-                  </div>
-                </template>
-
-                <template if:true={layer.hasFilterControl}>
-                  <div class="filter-block">
-                    <div class="filter-label">{layer.filterFieldLabel}</div>
-
-                    <button
-                      class="filter-trigger"
-                      type="button"
-                      data-slot={layer.slotNumber}
-                      onclick={handleToggleFilterMenu}
-                    >
-                      <span class="filter-trigger-text">{layer.selectedFilterLabel}</span>
-                      <span class="filter-trigger-icon">▾</span>
-                    </button>
-
-                    <template if:true={layer.isFilterMenuOpen}>
-                      <div class="filter-menu">
-                        <input
-                          class="filter-search-input"
-                          type="search"
-                          placeholder="Search"
-                          value={layer.filterSearchText}
-                          data-slot={layer.slotNumber}
-                          oninput={handleFilterSearchInput}
-                        />
-
-                        <div class="filter-option-list">
-                          <template
-                            for:each={layer.filteredFilterOptions}
-                            for:item="filterOption"
-                          >
-                            <button
-                              key={filterOption.value}
-                              class="filter-option-button"
-                              type="button"
-                              data-slot={layer.slotNumber}
-                              data-value={filterOption.value}
-                              onclick={handleFilterOptionSelect}
-                            >
-                              {filterOption.label}
-                            </button>
-                          </template>
-                        </div>
-                      </div>
-                    </template>
-                  </div>
-                </template>
-              </section>
-            </template>
+      <div class={contentSurfaceClass}>
+        <template if:true={showInlineSpinner}>
+          <div class="spinner-wrap">
+            <lightning-spinner
+              size="small"
+              alternative-text="Loading project record map"
+            ></lightning-spinner>
           </div>
         </template>
 
-        <div class="map-panel">
-          <template if:true={showCollapsedSidebarHandle}>
-            <div class="collapsed-sidebar-handle">
-              <lightning-button-icon
-                icon-name={sidebarToggleIconName}
-                alternative-text={sidebarToggleTitle}
-                title={sidebarToggleTitle}
-                onclick={handleToggleSidebar}
-                disabled={isLoading}
-              ></lightning-button-icon>
+        <template if:true={errorMessage}>
+          <div class="message message-error">
+            <div class="message-title">Map Error</div>
+            <div>{errorMessage}</div>
+          </div>
+        </template>
+
+        <template if:true={tileWarningMessage}>
+          <div class="message message-warning">
+            <div class="message-title">Tile Warning</div>
+            <div>{tileWarningMessage}</div>
+          </div>
+        </template>
+
+        <div class="toolbar">
+          <div class="toolbar-left">
+            <div class="toolbar-title">Sitetracker Map Layers</div>
+            <template if:true={hasLayerPanels}>
+              <div class="toolbar-subtitle">{mapSummaryText}</div>
+            </template>
+          </div>
+
+          <div class="toolbar-right">
+            <lightning-button
+              label="Refresh"
+              title="Reload the current project map data"
+              onclick={handleRefreshClick}
+              disabled={isLoading}
+            ></lightning-button>
+          </div>
+        </div>
+
+        <template if:true={showNoConfiguredLayers}>
+          <div class="message message-info">
+            Add one or more Map Layer Record Id values in the Lightning App Builder component
+            settings to render layers on this Project page.
+          </div>
+        </template>
+
+        <template if:true={showNoVisibleFeatures}>
+          <div class="message message-info">
+            No visible features matched the current layer visibility and filter selections.
+          </div>
+        </template>
+
+        <div class={contentGridClass}>
+          <template if:true={showSidePanel}>
+            <div class="side-panel">
+              <div class="side-panel-header">
+                <div class="side-panel-heading">Layers</div>
+
+                <lightning-button-icon
+                  icon-name={sidebarToggleIconName}
+                  alternative-text={sidebarToggleTitle}
+                  title={sidebarToggleTitle}
+                  onclick={handleToggleSidebar}
+                  disabled={isLoading}
+                ></lightning-button-icon>
+              </div>
+
+              <template for:each={uiLayers} for:item="layer">
+                <section key={layer.slotNumber} class="layer-card">
+                  <div class="layer-card-header">
+                    <div class="layer-card-title-wrap">
+                      <div class="layer-card-title">{layer.mapLayerName}</div>
+                    </div>
+
+                    <lightning-input
+                      type="toggle"
+                      variant="label-hidden"
+                      label="Show Layer"
+                      message-toggle-active="Shown"
+                      message-toggle-inactive="Hidden"
+                      checked={layer.isVisible}
+                      data-slot={layer.slotNumber}
+                      onchange={handleLayerVisibilityChange}
+                    ></lightning-input>
+                  </div>
+
+                  <template if:true={layer.hasError}>
+                    <div class="message message-error layer-inline-message">
+                      <div class="message-title">Layer Error</div>
+                      <div>{layer.errorMessage}</div>
+                    </div>
+                  </template>
+
+                  <template if:true={layer.hasWarnings}>
+                    <div class="warning-list">
+                      <template for:each={layer.warnings} for:item="warning">
+                        <div key={warning} class="message message-warning layer-inline-message">
+                          <div>{warning}</div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+
+                  <template if:true={layer.hasFilterControl}>
+                    <div class="filter-block">
+                      <div class="filter-label">{layer.filterFieldLabel}</div>
+
+                      <button
+                        class="filter-trigger"
+                        type="button"
+                        data-slot={layer.slotNumber}
+                        onclick={handleToggleFilterMenu}
+                      >
+                        <span class="filter-trigger-text">{layer.selectedFilterLabel}</span>
+                        <span class="filter-trigger-icon">▾</span>
+                      </button>
+
+                      <template if:true={layer.isFilterMenuOpen}>
+                        <div class="filter-menu">
+                          <input
+                            class="filter-search-input"
+                            type="search"
+                            placeholder="Search"
+                            value={layer.filterSearchText}
+                            data-slot={layer.slotNumber}
+                            oninput={handleFilterSearchInput}
+                          />
+
+                          <div class="filter-option-list">
+                            <template
+                              for:each={layer.filteredFilterOptions}
+                              for:item="filterOption"
+                            >
+                              <button
+                                key={filterOption.value}
+                                class="filter-option-button"
+                                type="button"
+                                data-slot={layer.slotNumber}
+                                data-value={filterOption.value}
+                                onclick={handleFilterOptionSelect}
+                              >
+                                {filterOption.label}
+                              </button>
+                            </template>
+                          </div>
+                        </div>
+                      </template>
+                    </div>
+                  </template>
+                </section>
+              </template>
             </div>
           </template>
 
-          <div class="map-frame">
-            <div data-id="map" class="map-root" style={mapStyle}></div>
+          <div class="map-panel">
+            <template if:true={showCollapsedSidebarHandle}>
+              <div class="collapsed-sidebar-handle">
+                <lightning-button-icon
+                  icon-name={sidebarToggleIconName}
+                  alternative-text={sidebarToggleTitle}
+                  title={sidebarToggleTitle}
+                  onclick={handleToggleSidebar}
+                  disabled={isLoading}
+                ></lightning-button-icon>
+              </div>
+            </template>
+
+            <div class="map-frame">
+              <div data-id="map" class="map-root" style={mapStyle} lwc:dom="manual"></div>
+            </div>
           </div>
         </div>
       </div>
