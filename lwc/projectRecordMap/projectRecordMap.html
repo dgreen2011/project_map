@@ -164,7 +164,7 @@
             </div>
           </template>
 
-          <div class="map-panel">
+          <div class={mapPanelClass}>
             <template if:true={showCollapsedSidebarHandle}>
               <div class="collapsed-sidebar-handle">
                 <lightning-button-icon
@@ -177,8 +177,22 @@
               </div>
             </template>
 
-            <div class="map-frame">
-              <div data-id="map" class="map-root" style={mapStyle} lwc:dom="manual"></div>
+            <div class={mapExpandTargetClass} data-id="map-expand-target">
+              <div class="map-overlay-actions">
+                <button
+                  class="map-expand-button"
+                  type="button"
+                  title={mapExpandButtonTitle}
+                  aria-label={mapExpandButtonTitle}
+                  onclick={handleToggleMapExpanded}
+                >
+                  <span class="map-expand-button-icon" aria-hidden="true">{mapExpandButtonIcon}</span>
+                </button>
+              </div>
+
+              <div class="map-frame">
+                <div data-id="map" class="map-root" style={mapStyle} lwc:dom="manual"></div>
+              </div>
             </div>
           </div>
         </div>
