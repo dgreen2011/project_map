@@ -1,8 +1,6 @@
 import { api, LightningElement } from "lwc";
 import { ShowToastEvent } from "lightning/platformShowToastEvent";
 import getProjectMapData from "@salesforce/apex/ProjectRecordMapController.getProjectMapData";
-import getWorkLogLaunchConfig from "@salesforce/apex/ProjectRecordMapController.getWorkLogLaunchConfig";
-import linkUploadedFilesToRecord from "@salesforce/apex/ProjectRecordMapController.linkUploadedFilesToRecord";
 import { loadScript, loadStyle } from "lightning/platformResourceLoader";
 
 import leafletResource from "@salesforce/resourceUrl/leaflet_1_9_4";
@@ -15,37 +13,6 @@ const DEFAULT_TILE_ATTRIBUTION = "&copy; OpenStreetMap contributors";
 const DEFAULT_POINT_COLOR = "#2f80ed";
 const DEFAULT_LINE_COLOR = "#0b8f86";
 const DEFAULT_POLYGON_COLOR = "#5779c1";
-const WORK_LOG_OBJECT_API_NAME = "sitetracker__Production_Work_Log__c";
-const WORK_LOG_STATUS_FIELD = "sitetracker__Status__c";
-const WORK_LOG_PROJECT_FIELD = "sitetracker__Project__c";
-const WORK_LOG_PLA_FIELD = "sitetracker__Production_Line_Allocation__c";
-const WORK_LOG_PPL_FIELD = "sitetracker__st_Production_Plan_Line__c";
-const WORK_LOG_SERVICE_FIELD = "sitetracker__Item__c";
-const WORK_LOG_SITE_FIELD = "sitetracker__Site__c";
-const WORK_LOG_SEGMENT_FIELD = "sitetracker__Segment__c";
-const WORK_LOG_START_DATE_FIELD = "sitetracker__Start_Date__c";
-const WORK_LOG_END_DATE_FIELD = "sitetracker__End_Date__c";
-const WORK_LOG_LAT_FIELD = "sitetracker__Location__Latitude__s";
-const WORK_LOG_LNG_FIELD = "sitetracker__Location__Longitude__s";
-const WORK_LOG_JOB_FIELD = "sitetracker__Job__c";
-const WORK_LOG_ACTIVITY_FIELD = "sitetracker__Activity__c";
-const WORK_LOG_ATTACHMENT_FIELD = "sitetracker__Attachment__c";
-const AUTO_HIDDEN_WORK_LOG_FIELDS = new Set([
-  WORK_LOG_PROJECT_FIELD,
-  WORK_LOG_PLA_FIELD,
-  WORK_LOG_PPL_FIELD,
-  WORK_LOG_SERVICE_FIELD,
-  WORK_LOG_SITE_FIELD,
-  WORK_LOG_SEGMENT_FIELD,
-  WORK_LOG_START_DATE_FIELD,
-  WORK_LOG_END_DATE_FIELD,
-  WORK_LOG_STATUS_FIELD,
-  WORK_LOG_LAT_FIELD,
-  WORK_LOG_LNG_FIELD,
-  WORK_LOG_JOB_FIELD,
-  WORK_LOG_ACTIVITY_FIELD,
-  WORK_LOG_ATTACHMENT_FIELD
-]);
 
 export default class ProjectRecordMap extends LightningElement {
   @api recordId;
@@ -80,6 +47,7 @@ export default class ProjectRecordMap extends LightningElement {
   mapReady = false;
   bootstrapPromise = null;
   lastRequestSignature = null;
+  pendingViewportSyncTimer = null;
 
   isLoading = false;
   isSidebarCollapsed = false;
@@ -87,17 +55,7 @@ export default class ProjectRecordMap extends LightningElement {
   tileWarningMessage = "";
 
   isWorkLogModalOpen = false;
-  isPreparingWorkLog = false;
-  isSavingWorkLog = false;
-  isLinkingUploadedFiles = false;
-  workLogContextError = "";
-  workLogSaveError = "";
-  workLogSuccessMessage = "";
-  workLogUploadMessage = "";
-  createdWorkLogId = "";
-  workLogContext = null;
-  workLogVisibleFields = [];
-  workLogHiddenFields = [];
+  workLogLaunchContext = null;
 
   uiLayers = [];
 
@@ -111,6 +69,7 @@ export default class ProjectRecordMap extends LightningElement {
   }
 
   disconnectedCallback() {
+    this.clearPendingViewportSync();
     this.destroyMap();
     this.removePopupActionListener();
   }
@@ -178,57 +137,16 @@ export default class ProjectRecordMap extends LightningElement {
     } across ${visibleLayerCount} visible layer${visibleLayerCount === 1 ? "" : "s"}`;
   }
 
-  get workLogTargetName() {
-    return this.workLogContext?.targetName || "";
+  get workLogModalTargetRecordId() {
+    return this.workLogLaunchContext?.targetRecordId || "";
   }
 
-  get workLogTargetTypeLabel() {
-    return (
-      this.workLogContext?.targetTypeLabel ||
-      this.getObjectTypeLabel(this.workLogContext?.targetObjectApiName)
-    );
+  get workLogModalTargetObjectApiName() {
+    return this.workLogLaunchContext?.targetObjectApiName || "";
   }
 
-  get workLogTargetTypeLabelLower() {
-    const label = this.workLogTargetTypeLabel || "record";
-    return label.toLowerCase();
-  }
-
-  get workLogProjectName() {
-    return this.workLogContext?.projectName || "";
-  }
-
-  get workLogPlaName() {
-    return this.workLogContext?.productionLineAllocationName || "";
-  }
-
-  get workLogServiceName() {
-    return this.workLogContext?.serviceName || "";
-  }
-
-  get hasWorkLogContextSummary() {
-    return Boolean(
-      this.workLogTargetName || this.workLogProjectName || this.workLogPlaName || this.workLogServiceName
-    );
-  }
-
-  get showWorkLogForm() {
-    return (
-      this.isWorkLogModalOpen &&
-      !this.createdWorkLogId &&
-      !this.isPreparingWorkLog &&
-      !this.workLogContextError &&
-      Array.isArray(this.workLogVisibleFields) &&
-      Array.isArray(this.workLogHiddenFields)
-    );
-  }
-
-  get showWorkLogUploadStep() {
-    return this.isWorkLogModalOpen && Boolean(this.createdWorkLogId);
-  }
-
-  get workLogSaveButtonLabel() {
-    return this.isSavingWorkLog ? "Creating..." : "Create Work Log";
+  get workLogModalFeatureName() {
+    return this.workLogLaunchContext?.featureName || "";
   }
 
   ensurePopupActionListener() {
@@ -309,12 +227,7 @@ export default class ProjectRecordMap extends LightningElement {
 
     this.map.setView(DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM);
     this.mapReady = true;
-
-    window.setTimeout(() => {
-      if (this.map) {
-        this.map.invalidateSize();
-      }
-    }, 0);
+    this.scheduleMapViewportSync({ fitToBounds: false });
   }
 
   destroyMap() {
@@ -398,6 +311,7 @@ export default class ProjectRecordMap extends LightningElement {
       this.uiLayers = [];
       this.clearRenderedFeatures();
       this.resetMapView();
+      this.scheduleMapViewportSync({ fitToBounds: false });
       return;
     }
 
@@ -411,12 +325,14 @@ export default class ProjectRecordMap extends LightningElement {
       });
 
       this.applyResponse(response);
+      await this.waitForLayoutStabilization();
       this.renderVisibleFeatures({ fitToBounds: true });
     } catch (error) {
       this.errorMessage = this.reduceError(error);
       this.uiLayers = [];
       this.clearRenderedFeatures();
       this.resetMapView();
+      this.scheduleMapViewportSync({ fitToBounds: false });
     } finally {
       this.isLoading = false;
     }
@@ -617,6 +533,7 @@ export default class ProjectRecordMap extends LightningElement {
     if (this.map && this.renderedFeatureGroup) {
       this.map.removeLayer(this.renderedFeatureGroup);
     }
+
     this.renderedFeatureGroup = null;
   }
 
@@ -652,13 +569,10 @@ export default class ProjectRecordMap extends LightningElement {
 
     this.renderedFeatureGroup = featureGroup.addTo(this.map);
 
-    if (fitToBounds) {
-      if (hasAnyRenderedFeature) {
-        this.fitMapToFeatureGroup(featureGroup);
-      } else {
-        this.resetMapView();
-      }
-    }
+    this.scheduleMapViewportSync({
+      fitToBounds,
+      fallbackToDefault: !hasAnyRenderedFeature
+    });
   }
 
   fitMapToFeatureGroup(featureGroup) {
@@ -683,6 +597,74 @@ export default class ProjectRecordMap extends LightningElement {
     }
 
     this.map.setView(DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM);
+  }
+
+  clearPendingViewportSync() {
+    if (this.pendingViewportSyncTimer) {
+      window.clearTimeout(this.pendingViewportSyncTimer);
+      this.pendingViewportSyncTimer = null;
+    }
+  }
+
+  scheduleMapViewportSync({ fitToBounds = false, fallbackToDefault = false } = {}) {
+    if (!this.map) {
+      return;
+    }
+
+    this.clearPendingViewportSync();
+
+    this.pendingViewportSyncTimer = window.setTimeout(() => {
+      const runSync = () => {
+        if (!this.map) {
+          return;
+        }
+
+        try {
+          this.map.invalidateSize({
+            pan: false,
+            debounceMoveend: true
+          });
+        } catch (error) {
+          this.map.invalidateSize(false);
+        }
+
+        if (!fitToBounds) {
+          return;
+        }
+
+        const featureGroup = this.renderedFeatureGroup;
+        const hasRenderedLayers =
+          featureGroup &&
+          typeof featureGroup.getLayers === "function" &&
+          featureGroup.getLayers().length > 0;
+
+        if (hasRenderedLayers) {
+          this.fitMapToFeatureGroup(featureGroup);
+        } else if (fallbackToDefault) {
+          this.resetMapView();
+        }
+      };
+
+      if (typeof window.requestAnimationFrame === "function") {
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(runSync);
+        });
+      } else {
+        runSync();
+      }
+    }, 0);
+  }
+
+  waitForLayoutStabilization() {
+    return new Promise((resolve) => {
+      if (typeof window.requestAnimationFrame === "function") {
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(resolve);
+        });
+      } else {
+        window.setTimeout(resolve, 0);
+      }
+    });
   }
 
   createLeafletLayer(layer, feature) {
@@ -892,6 +874,7 @@ export default class ProjectRecordMap extends LightningElement {
     if (Array.isArray(inputColor)) {
       const [red, green, blue, alpha] = inputColor;
       const numericAlpha = this.toNumber(alpha);
+
       if (
         Number.isFinite(this.toNumber(red)) &&
         Number.isFinite(this.toNumber(green)) &&
@@ -900,6 +883,7 @@ export default class ProjectRecordMap extends LightningElement {
         if (Number.isFinite(numericAlpha)) {
           return `rgba(${Number(red)}, ${Number(green)}, ${Number(blue)}, ${numericAlpha})`;
         }
+
         return `rgb(${Number(red)}, ${Number(green)}, ${Number(blue)})`;
       }
     }
@@ -1116,8 +1100,8 @@ export default class ProjectRecordMap extends LightningElement {
             title="Create Work Log"
             aria-label="Create Work Log"
             data-worklog-action="true"
-            data-record-id="${this.escapeHtml(feature.recordId || "")}" 
-            data-object-api-name="${this.escapeHtml(feature.targetObjectApiName || layer?.objectApiName || "")}" 
+            data-record-id="${this.escapeHtml(feature.recordId || "")}"
+            data-object-api-name="${this.escapeHtml(feature.targetObjectApiName || layer?.objectApiName || "")}"
             data-feature-name="${escapedName}"
           >
             <span class="prm-popup-action-icon">＋</span>
@@ -1179,209 +1163,18 @@ export default class ProjectRecordMap extends LightningElement {
     });
   }
 
-  async openWorkLogModal({ targetRecordId, targetObjectApiName, featureName }) {
-    this.resetWorkLogModalState();
-    this.isWorkLogModalOpen = true;
-    this.isPreparingWorkLog = true;
-    this.workLogContext = {
+  openWorkLogModal({ targetRecordId, targetObjectApiName, featureName }) {
+    this.workLogLaunchContext = {
       targetRecordId,
       targetObjectApiName,
-      targetName: featureName || ""
+      featureName: featureName || ""
     };
-
-    try {
-      const response = await getWorkLogLaunchConfig({
-        featureRecordId: targetRecordId,
-        featureObjectApiName: targetObjectApiName,
-        projectId: this.recordId,
-        fieldSetApiName: this.normalizeString(this.workLogFieldSetApiName)
-      });
-
-      this.applyWorkLogContext(response);
-    } catch (error) {
-      this.workLogContextError = this.reduceError(error);
-    } finally {
-      this.isPreparingWorkLog = false;
-    }
+    this.isWorkLogModalOpen = true;
   }
 
-  applyWorkLogContext(context) {
-    if (!context) {
-      this.workLogContextError = "No Work Log context was returned.";
-      return;
-    }
-
-    const defaultValues = this.normalizeWorkLogDefaultValues(context.defaultValues, context);
-    const fieldModels = this.buildWorkLogFieldModels(context, defaultValues);
-
-    this.workLogContext = {
-      ...context,
-      targetRecordId: context.targetRecordId || context.featureRecordId,
-      targetObjectApiName: context.targetObjectApiName || context.featureObjectApiName,
-      targetName:
-        context.targetName ||
-        context.featureName ||
-        this.workLogContext?.targetName ||
-        "",
-      targetTypeLabel:
-        context.targetTypeLabel ||
-        this.getObjectTypeLabel(context.targetObjectApiName || context.featureObjectApiName),
-      defaultValues
-    };
-    this.workLogVisibleFields = fieldModels.visibleFields;
-    this.workLogHiddenFields = fieldModels.hiddenFields;
-  }
-
-  normalizeWorkLogDefaultValues(defaultValues, context = {}) {
-    const safeDefaults = defaultValues && typeof defaultValues === "object" ? defaultValues : {};
-    const normalizedDefaults = { ...safeDefaults };
-
-    if (context.projectId) {
-      normalizedDefaults[WORK_LOG_PROJECT_FIELD] = context.projectId;
-    }
-    if (context.productionLineAllocationId) {
-      normalizedDefaults[WORK_LOG_PLA_FIELD] = context.productionLineAllocationId;
-    }
-    if (context.productionPlanLineId) {
-      normalizedDefaults[WORK_LOG_PPL_FIELD] = context.productionPlanLineId;
-    }
-    if (context.serviceId) {
-      normalizedDefaults[WORK_LOG_SERVICE_FIELD] = context.serviceId;
-    }
-    if (context.jobId) {
-      normalizedDefaults[WORK_LOG_JOB_FIELD] = context.jobId;
-    }
-    if (context.activityId) {
-      normalizedDefaults[WORK_LOG_ACTIVITY_FIELD] = context.activityId;
-    }
-    if (context.siteId) {
-      normalizedDefaults[WORK_LOG_SITE_FIELD] = context.siteId;
-    }
-    if (context.segmentId) {
-      normalizedDefaults[WORK_LOG_SEGMENT_FIELD] = context.segmentId;
-    }
-    if (context.startDateIso) {
-      normalizedDefaults[WORK_LOG_START_DATE_FIELD] = context.startDateIso;
-    }
-    if (context.endDateIso) {
-      normalizedDefaults[WORK_LOG_END_DATE_FIELD] = context.endDateIso;
-    }
-    normalizedDefaults[WORK_LOG_STATUS_FIELD] =
-      context.statusValue || normalizedDefaults[WORK_LOG_STATUS_FIELD] || "Draft";
-
-    return normalizedDefaults;
-  }
-
-  buildWorkLogFieldModels(context, defaultValues) {
-    const rawFieldSetFields = Array.isArray(context?.fieldSetFields)
-      ? context.fieldSetFields
-      : Array.isArray(context?.formFields)
-        ? context.formFields
-        : [];
-    const orderedFieldApiNames = rawFieldSetFields
-      .map((fieldItem) => fieldItem?.apiName || fieldItem?.fieldApiName || fieldItem?.fullName)
-      .filter((apiName) => Boolean(apiName));
-
-    const visibleFields = [];
-    const hiddenFields = [];
-    const seenFieldNames = new Set();
-
-    orderedFieldApiNames.forEach((apiName) => {
-      if (seenFieldNames.has(apiName)) {
-        return;
-      }
-      seenFieldNames.add(apiName);
-
-      const fieldModel = {
-        apiName,
-        value: this.getDefaultFieldValue(defaultValues, apiName)
-      };
-
-      if (this.shouldHideWorkLogField(apiName, defaultValues)) {
-        hiddenFields.push(fieldModel);
-      } else {
-        visibleFields.push(fieldModel);
-      }
-    });
-
-    Object.keys(defaultValues).forEach((apiName) => {
-      if (!apiName || seenFieldNames.has(apiName)) {
-        return;
-      }
-      seenFieldNames.add(apiName);
-      hiddenFields.push({
-        apiName,
-        value: this.getDefaultFieldValue(defaultValues, apiName)
-      });
-    });
-
-    return {
-      visibleFields,
-      hiddenFields
-    };
-  }
-
-  getDefaultFieldValue(defaultValues, apiName) {
-    if (!defaultValues || !apiName) {
-      return null;
-    }
-
-    return Object.prototype.hasOwnProperty.call(defaultValues, apiName) ? defaultValues[apiName] : null;
-  }
-
-  shouldHideWorkLogField(apiName, defaultValues) {
-    if (!apiName) {
-      return false;
-    }
-
-    if (AUTO_HIDDEN_WORK_LOG_FIELDS.has(apiName)) {
-      return true;
-    }
-
-    const hasDefaultValue = Object.prototype.hasOwnProperty.call(defaultValues || {}, apiName);
-    return hasDefaultValue && AUTO_HIDDEN_WORK_LOG_FIELDS.has(apiName);
-  }
-
-  handleCloseWorkLogModal(event) {
-    if (event) {
-      event.preventDefault();
-    }
-
-    if (this.isSavingWorkLog) {
-      return;
-    }
-
+  handleWorkLogModalClose() {
     this.isWorkLogModalOpen = false;
-    this.resetWorkLogModalState();
-  }
-
-  resetWorkLogModalState() {
-    this.isPreparingWorkLog = false;
-    this.isSavingWorkLog = false;
-    this.isLinkingUploadedFiles = false;
-    this.workLogContextError = "";
-    this.workLogSaveError = "";
-    this.workLogSuccessMessage = "";
-    this.workLogUploadMessage = "";
-    this.createdWorkLogId = "";
-    this.workLogContext = null;
-    this.workLogVisibleFields = [];
-    this.workLogHiddenFields = [];
-  }
-
-  handleWorkLogFormSuccess(event) {
-    this.isSavingWorkLog = false;
-    this.workLogSaveError = "";
-    this.createdWorkLogId = event.detail?.id || "";
-    this.workLogSuccessMessage = this.createdWorkLogId
-      ? "The Work Log was created. You can upload files below."
-      : "The Work Log was created.";
-    this.dispatchToast("Work Log Created", "The Work Log was created successfully.", "success");
-  }
-
-  handleWorkLogFormError(event) {
-    this.isSavingWorkLog = false;
-    this.workLogSaveError = this.reduceRecordEditError(event.detail) || "Unable to create the Work Log.";
+    this.workLogLaunchContext = null;
   }
 
   handleLayerVisibilityChange(event) {
@@ -1473,97 +1266,16 @@ export default class ProjectRecordMap extends LightningElement {
   handleToggleSidebar() {
     this.closeAllFilterMenus();
     this.isSidebarCollapsed = !this.isSidebarCollapsed;
-
-    window.setTimeout(() => {
-      if (!this.map) {
-        return;
-      }
-
-      this.map.invalidateSize();
-
-      if (this.renderedFeatureGroup) {
-        this.fitMapToFeatureGroup(this.renderedFeatureGroup);
-      } else {
-        this.resetMapView();
-      }
-    }, 0);
+    this.scheduleMapViewportSync({
+      fitToBounds: true,
+      fallbackToDefault: true
+    });
   }
 
   handleRefreshClick() {
     this.closeAllFilterMenus();
     this.lastRequestSignature = null;
     this.loadProjectMapData();
-  }
-
-  async handleWorkLogUploadFinished(event) {
-    const uploadedFiles = Array.isArray(event.detail?.files) ? event.detail.files : [];
-    if (!uploadedFiles.length || !this.createdWorkLogId) {
-      return;
-    }
-
-    const contentDocumentIds = uploadedFiles
-      .map((fileItem) => fileItem?.documentId)
-      .filter((documentId) => Boolean(documentId));
-
-    if (!contentDocumentIds.length) {
-      return;
-    }
-
-    this.isLinkingUploadedFiles = true;
-    this.workLogUploadMessage = "Linking uploaded files...";
-
-    try {
-      await linkUploadedFilesToRecord({
-        contentDocumentIds,
-        linkedRecordId: this.workLogContext?.targetRecordId || this.workLogContext?.featureRecordId
-      });
-
-      const fileLabel = uploadedFiles.length === 1 ? "file was" : "files were";
-      this.workLogUploadMessage = `${uploadedFiles.length} ${fileLabel} uploaded and linked successfully.`;
-      this.dispatchToast("Files Linked", "Uploaded files were linked successfully.", "success");
-    } catch (error) {
-      this.workLogUploadMessage = this.reduceError(error);
-      this.dispatchToast("File Link Error", this.workLogUploadMessage, "error");
-    } finally {
-      this.isLinkingUploadedFiles = false;
-    }
-  }
-
-  handleOpenCreatedWorkLog() {
-    if (!this.createdWorkLogId) {
-      return;
-    }
-
-    const url = `/lightning/r/${encodeURIComponent(WORK_LOG_OBJECT_API_NAME)}/${encodeURIComponent(
-      this.createdWorkLogId
-    )}/view`;
-    window.open(url, "_blank", "noopener");
-  }
-
-  getObjectTypeLabel(objectApiName) {
-    const normalized = this.normalizeString(objectApiName)?.toLowerCase();
-    switch (normalized) {
-      case "sitetracker__site__c":
-        return "Site";
-      case "sitetracker__segment__c":
-        return "Segment";
-      case "sitetracker__area__c":
-        return "Area";
-      case WORK_LOG_OBJECT_API_NAME.toLowerCase():
-        return "Work Log";
-      default:
-        return "Record";
-    }
-  }
-
-  dispatchToast(title, message, variant) {
-    this.dispatchEvent(
-      new ShowToastEvent({
-        title,
-        message,
-        variant
-      })
-    );
   }
 
   safeParseJson(value) {
@@ -1605,30 +1317,14 @@ export default class ProjectRecordMap extends LightningElement {
       .replaceAll("'", "&#39;");
   }
 
-  reduceRecordEditError(detail) {
-    if (!detail) {
-      return "";
-    }
-
-    const fieldErrors = detail.output?.fieldErrors || {};
-    const fieldMessages = Object.values(fieldErrors)
-      .flat()
-      .map((item) => item?.message)
-      .filter((message) => Boolean(message));
-
-    const pageErrors = Array.isArray(detail.output?.errors)
-      ? detail.output.errors.map((item) => item?.message).filter((message) => Boolean(message))
-      : [];
-
-    if (fieldMessages.length || pageErrors.length) {
-      return [...fieldMessages, ...pageErrors].join("; ");
-    }
-
-    if (typeof detail.message === "string") {
-      return detail.message;
-    }
-
-    return "";
+  dispatchToast(title, message, variant) {
+    this.dispatchEvent(
+      new ShowToastEvent({
+        title,
+        message,
+        variant
+      })
+    );
   }
 
   reduceError(error) {
