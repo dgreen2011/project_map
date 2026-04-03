@@ -3,7 +3,7 @@
     <apiVersion>63.0</apiVersion>
     <isExposed>true</isExposed>
     <masterLabel>Project Record Map</masterLabel>
-    <description>Displays Sitetracker Map Layer records on a Project record page using Map Layer and Map Object Configuration settings, and supports creating Production Work Logs from Site and Segment map features.</description>
+    <description>Displays Sitetracker Map Layer records on a Project record page using Map Layer and Map Object Configuration settings, and supports creating Production Work Logs from Site and Segment map features, including Segment completion path capture.</description>
 
     <targets>
         <target>lightning__RecordPage</target>
@@ -29,6 +29,20 @@
                 type="String"
                 label="Production Work Log Field Set API Name"
                 description="Optional field set on sitetracker__Production_Work_Log__c used to control which fields appear in the Create Work Log modal. Example: sitetracker__Create_Work_Logs_Form_GIS"
+            />
+
+            <property
+                name="siteDetailFieldSetApiName"
+                type="String"
+                label="Site Detail Field Set API Name"
+                description="Optional field set on sitetracker__Site__c used to show Site details below the record name in the Create Work Log modal."
+            />
+
+            <property
+                name="segmentDetailFieldSetApiName"
+                type="String"
+                label="Segment Detail Field Set API Name"
+                description="Optional field set on sitetracker__Segment__c used to show Segment details below the record name in the Create Work Log modal."
             />
 
             <property
