@@ -66,7 +66,7 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
 
   segmentPathValue = "";
   segmentPathValid = false;
-  segmentSelectionMode = "full";
+  segmentSelectionMode = "";
 
   renderedCallback() {
     if (this.hasInitialized) {
@@ -252,7 +252,7 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
     const initialSegmentPathValue = defaultValues[WORK_LOG_GIS_PATH_FIELD] || "";
     this.segmentPathValue = initialSegmentPathValue;
     this.segmentPathValid = !this.isSegmentTarget || !this.segmentGeometryRaw || Boolean(initialSegmentPathValue);
-    this.segmentSelectionMode = "full";
+    this.segmentSelectionMode = initialSegmentPathValue ? "full" : "";
   }
 
   normalizeWorkLogDefaultValues(defaultValues, context = {}) {
@@ -370,7 +370,7 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
     const detail = event.detail || {};
     this.segmentPathValue = detail.pathValue || "";
     this.segmentPathValid = Boolean(detail.isValid);
-    this.segmentSelectionMode = detail.selectionMode || this.segmentSelectionMode;
+    this.segmentSelectionMode = detail.selectionMode ?? this.segmentSelectionMode;
     this.upsertHiddenFieldValue(WORK_LOG_GIS_PATH_FIELD, this.segmentPathValue || null);
   }
 
@@ -415,8 +415,10 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
     if (this.showSegmentPathEditor && !this.segmentPathValid) {
       this.workLogSaveError =
         this.segmentSelectionMode === "partial"
-          ? "Add at least two points on the map to capture a partial Segment completion path."
-          : "Select the completed Segment path before creating the Work Log.";
+          ? "Choose the completed start point and end point on the Segment before creating the Work Log."
+          : this.segmentSelectionMode === "full"
+            ? "Select the completed Segment path before creating the Work Log."
+            : "Choose Full Segment or Partial Segment before creating the Work Log.";
       return;
     }
 
@@ -531,7 +533,7 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
     this.workLogHiddenFields = [];
     this.segmentPathValue = "";
     this.segmentPathValid = false;
-    this.segmentSelectionMode = "full";
+    this.segmentSelectionMode = "";
   }
 
   getObjectTypeLabel(objectApiName) {
