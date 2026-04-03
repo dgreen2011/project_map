@@ -18,6 +18,7 @@ const WORK_LOG_LNG_FIELD = "sitetracker__Location__Longitude__s";
 const WORK_LOG_JOB_FIELD = "sitetracker__Job__c";
 const WORK_LOG_ACTIVITY_FIELD = "sitetracker__Activity__c";
 const WORK_LOG_ATTACHMENT_FIELD = "sitetracker__Attachment__c";
+const WORK_LOG_GIS_PATH_FIELD = "sitetracker__st_GIS_Path__c";
 
 const AUTO_HIDDEN_WORK_LOG_FIELDS = new Set([
   WORK_LOG_PROJECT_FIELD,
@@ -33,7 +34,8 @@ const AUTO_HIDDEN_WORK_LOG_FIELDS = new Set([
   WORK_LOG_LNG_FIELD,
   WORK_LOG_JOB_FIELD,
   WORK_LOG_ACTIVITY_FIELD,
-  WORK_LOG_ATTACHMENT_FIELD
+  WORK_LOG_ATTACHMENT_FIELD,
+  WORK_LOG_GIS_PATH_FIELD
 ]);
 
 export default class ProjectRecordMapWorkLogModal extends LightningElement {
@@ -42,6 +44,8 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
   @api targetObjectApiName;
   @api featureName;
   @api fieldSetApiName;
+  @api siteDetailFieldSetApiName;
+  @api segmentDetailFieldSetApiName;
 
   hasInitialized = false;
 
@@ -60,6 +64,10 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
   workLogVisibleFields = [];
   workLogHiddenFields = [];
 
+  segmentPathValue = "";
+  segmentPathValid = false;
+  segmentSelectionMode = "full";
+
   renderedCallback() {
     if (this.hasInitialized) {
       return;
@@ -71,6 +79,26 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
 
     this.hasInitialized = true;
     this.loadWorkLogContext();
+  }
+
+  get isSiteTarget() {
+    return this.normalizeString(this.targetObjectApiName)?.toLowerCase() === "sitetracker__site__c";
+  }
+
+  get isSegmentTarget() {
+    return this.normalizeString(this.targetObjectApiName)?.toLowerCase() === "sitetracker__segment__c";
+  }
+
+  get targetDetailFieldSetApiName() {
+    if (this.isSiteTarget) {
+      return this.normalizeString(this.siteDetailFieldSetApiName);
+    }
+
+    if (this.isSegmentTarget) {
+      return this.normalizeString(this.segmentDetailFieldSetApiName);
+    }
+
+    return "";
   }
 
   get workLogTargetName() {
@@ -134,6 +162,28 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
     return this.isSavingWorkLog ? "Creating..." : "Create Work Log";
   }
 
+  get targetDetailFields() {
+    return Array.isArray(this.workLogContext?.targetDetailFields)
+      ? this.workLogContext.targetDetailFields
+      : [];
+  }
+
+  get showTargetDetailFields() {
+    return this.targetDetailFields.length > 0;
+  }
+
+  get segmentGeometryRaw() {
+    return this.workLogContext?.segmentGeometryRaw || "";
+  }
+
+  get showSegmentPathEditor() {
+    return this.isSegmentTarget && this.showWorkLogForm && Boolean(this.segmentGeometryRaw);
+  }
+
+  get showSegmentGeometryWarning() {
+    return this.isSegmentTarget && this.showWorkLogForm && !this.segmentGeometryRaw;
+  }
+
   async loadWorkLogContext() {
     this.resetTransientState();
 
@@ -146,7 +196,8 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
     this.workLogContext = {
       targetRecordId: this.targetRecordId,
       targetObjectApiName: this.targetObjectApiName,
-      targetName: this.featureName || ""
+      targetName: this.featureName || "",
+      targetDetailFields: []
     };
 
     try {
@@ -154,7 +205,8 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
         featureRecordId: this.targetRecordId,
         featureObjectApiName: this.targetObjectApiName,
         projectId: this.projectId,
-        fieldSetApiName: this.normalizeString(this.fieldSetApiName)
+        fieldSetApiName: this.normalizeString(this.fieldSetApiName),
+        targetDetailFieldSetApiName: this.targetDetailFieldSetApiName
       });
 
       this.applyWorkLogContext(response);
@@ -173,6 +225,13 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
 
     const defaultValues = this.normalizeWorkLogDefaultValues(context.defaultValues, context);
     const fieldModels = this.buildWorkLogFieldModels(context, defaultValues);
+    const targetDetailFields = Array.isArray(context.targetDetailFields)
+      ? context.targetDetailFields.map((fieldItem) => ({
+          apiName: fieldItem?.apiName || "",
+          label: fieldItem?.label || fieldItem?.apiName || "Field",
+          displayValue: fieldItem?.displayValue || "—"
+        }))
+      : [];
 
     this.workLogContext = {
       ...context,
@@ -183,11 +242,17 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
       targetTypeLabel: this.getObjectTypeLabel(
         context.targetObjectApiName || context.featureObjectApiName || this.targetObjectApiName
       ),
+      targetDetailFields,
       defaultValues
     };
     this.workLogWarnings = Array.isArray(context.warnings) ? context.warnings : [];
     this.workLogVisibleFields = fieldModels.visibleFields;
     this.workLogHiddenFields = fieldModels.hiddenFields;
+
+    const initialSegmentPathValue = defaultValues[WORK_LOG_GIS_PATH_FIELD] || "";
+    this.segmentPathValue = initialSegmentPathValue;
+    this.segmentPathValid = !this.isSegmentTarget || !this.segmentGeometryRaw || Boolean(initialSegmentPathValue);
+    this.segmentSelectionMode = "full";
   }
 
   normalizeWorkLogDefaultValues(defaultValues, context = {}) {
@@ -253,12 +318,9 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
 
       seenFieldNames.add(apiName);
 
-      const fieldModel = {
-        apiName,
-        value: this.getDefaultFieldValue(defaultValues, apiName)
-      };
+      const fieldModel = this.createFieldModel(apiName, this.getDefaultFieldValue(defaultValues, apiName));
 
-      if (this.shouldHideWorkLogField(apiName, defaultValues)) {
+      if (this.shouldHideWorkLogField(apiName)) {
         hiddenFields.push(fieldModel);
       } else {
         visibleFields.push(fieldModel);
@@ -271,15 +333,20 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
       }
 
       seenFieldNames.add(apiName);
-      hiddenFields.push({
-        apiName,
-        value: this.getDefaultFieldValue(defaultValues, apiName)
-      });
+      hiddenFields.push(this.createFieldModel(apiName, this.getDefaultFieldValue(defaultValues, apiName)));
     });
 
     return {
       visibleFields,
       hiddenFields
+    };
+  }
+
+  createFieldModel(apiName, value) {
+    return {
+      key: `${apiName}::${value ?? ""}`,
+      apiName,
+      value
     };
   }
 
@@ -291,17 +358,45 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
     return Object.prototype.hasOwnProperty.call(defaultValues, apiName) ? defaultValues[apiName] : null;
   }
 
-  shouldHideWorkLogField(apiName, defaultValues) {
+  shouldHideWorkLogField(apiName) {
     if (!apiName) {
       return false;
     }
 
-    if (AUTO_HIDDEN_WORK_LOG_FIELDS.has(apiName)) {
-      return true;
+    return AUTO_HIDDEN_WORK_LOG_FIELDS.has(apiName);
+  }
+
+  handleSegmentPathSelectionChange(event) {
+    const detail = event.detail || {};
+    this.segmentPathValue = detail.pathValue || "";
+    this.segmentPathValid = Boolean(detail.isValid);
+    this.segmentSelectionMode = detail.selectionMode || this.segmentSelectionMode;
+    this.upsertHiddenFieldValue(WORK_LOG_GIS_PATH_FIELD, this.segmentPathValue || null);
+  }
+
+  upsertHiddenFieldValue(apiName, value) {
+    if (!apiName) {
+      return;
     }
 
-    const hasDefaultValue = Object.prototype.hasOwnProperty.call(defaultValues || {}, apiName);
-    return hasDefaultValue && AUTO_HIDDEN_WORK_LOG_FIELDS.has(apiName);
+    const normalizedValue = value ?? null;
+    const visibleFieldIndex = this.workLogVisibleFields.findIndex((fieldItem) => fieldItem.apiName === apiName);
+    if (visibleFieldIndex >= 0) {
+      const nextVisibleFields = [...this.workLogVisibleFields];
+      nextVisibleFields[visibleFieldIndex] = this.createFieldModel(apiName, normalizedValue);
+      this.workLogVisibleFields = nextVisibleFields;
+      return;
+    }
+
+    const hiddenFieldIndex = this.workLogHiddenFields.findIndex((fieldItem) => fieldItem.apiName === apiName);
+    if (hiddenFieldIndex >= 0) {
+      const nextHiddenFields = [...this.workLogHiddenFields];
+      nextHiddenFields[hiddenFieldIndex] = this.createFieldModel(apiName, normalizedValue);
+      this.workLogHiddenFields = nextHiddenFields;
+      return;
+    }
+
+    this.workLogHiddenFields = [...this.workLogHiddenFields, this.createFieldModel(apiName, normalizedValue)];
   }
 
   handleCloseClick() {
@@ -317,6 +412,14 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
       return;
     }
 
+    if (this.showSegmentPathEditor && !this.segmentPathValid) {
+      this.workLogSaveError =
+        this.segmentSelectionMode === "partial"
+          ? "Add at least two points on the map to capture a partial Segment completion path."
+          : "Select the completed Segment path before creating the Work Log.";
+      return;
+    }
+
     const form = this.template.querySelector("lightning-record-edit-form");
     if (!form) {
       this.workLogSaveError = "The Work Log form could not be found.";
@@ -327,11 +430,29 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
     this.workLogSaveError = "";
 
     try {
-      form.submit();
+      form.submit(this.buildSubmitFieldValues());
     } catch (error) {
       this.isSavingWorkLog = false;
       this.workLogSaveError = this.reduceError(error);
     }
+  }
+
+  buildSubmitFieldValues() {
+    const fields = {};
+    const inputFields = this.template.querySelectorAll("lightning-input-field");
+
+    inputFields.forEach((inputField) => {
+      if (!inputField?.fieldName) {
+        return;
+      }
+      fields[inputField.fieldName] = inputField.value;
+    });
+
+    if (this.showSegmentPathEditor && this.segmentPathValue) {
+      fields[WORK_LOG_GIS_PATH_FIELD] = this.segmentPathValue;
+    }
+
+    return fields;
   }
 
   handleWorkLogFormSuccess(event) {
@@ -408,6 +529,9 @@ export default class ProjectRecordMapWorkLogModal extends LightningElement {
     this.workLogWarnings = [];
     this.workLogVisibleFields = [];
     this.workLogHiddenFields = [];
+    this.segmentPathValue = "";
+    this.segmentPathValid = false;
+    this.segmentSelectionMode = "full";
   }
 
   getObjectTypeLabel(objectApiName) {
