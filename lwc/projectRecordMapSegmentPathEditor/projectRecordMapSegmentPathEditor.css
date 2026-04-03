@@ -10,11 +10,8 @@
 }
 
 .prm-segment-editor-header {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 0.8rem;
-  margin-bottom: 0.75rem;
+  display: block;
+  margin-bottom: 0.6rem;
 }
 
 .prm-segment-editor-title-wrap {
@@ -36,19 +33,31 @@
   line-height: 1.45;
 }
 
-.prm-segment-editor-actions {
+.prm-segment-editor-mode-row {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
-  gap: 0.55rem;
-  flex-wrap: wrap;
+  justify-content: flex-start;
+  margin-bottom: 0.5rem;
+}
+
+.prm-segment-editor-utility-row {
+  min-height: 2.35rem;
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  margin-bottom: 0.75rem;
+}
+
+.prm-segment-editor-utility-row-hidden {
+  visibility: hidden;
+  pointer-events: none;
 }
 
 .prm-segment-editor-button-group {
   display: inline-flex;
   align-items: center;
   gap: 0.45rem;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
 }
 
 .prm-segment-editor-button {
@@ -175,11 +184,11 @@
 }
 
 @media (max-width: 760px) {
-  .prm-segment-editor-header {
-    flex-direction: column;
+  .prm-segment-editor-button-group {
+    flex-wrap: wrap;
   }
 
-  .prm-segment-editor-actions {
-    justify-content: flex-start;
+  .prm-segment-editor-utility-row {
+    min-height: 0;
   }
 }
