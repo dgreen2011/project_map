@@ -286,6 +286,72 @@
   width: 100%;
 }
 
+.map-panel-expanded {
+  z-index: 9100;
+}
+
+.map-expand-target {
+  position: relative;
+  width: 100%;
+}
+
+.map-expand-target-expanded,
+.map-expand-target:fullscreen,
+.map-expand-target:-webkit-full-screen {
+  position: fixed;
+  inset: 1rem;
+  z-index: 9101;
+  background: #ffffff;
+  border: 1px solid #d8dde6;
+  border-radius: 0.65rem;
+  padding: 0.75rem;
+  box-shadow: 0 20px 60px rgb(0 0 0 / 22%);
+}
+
+.map-overlay-actions {
+  position: absolute;
+  top: 0.7rem;
+  right: 0.7rem;
+  z-index: 8;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+}
+
+.map-expand-button {
+  appearance: none;
+  border: 1px solid #d8dde6;
+  border-radius: 0.45rem;
+  background: rgb(255 255 255 / 96%);
+  color: #032d60;
+  width: 2rem;
+  height: 2rem;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 10%);
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    box-shadow 120ms ease,
+    color 120ms ease;
+}
+
+.map-expand-button:hover,
+.map-expand-button:focus-visible {
+  border-color: #0176d3;
+  background: #f3f7ff;
+  color: #0176d3;
+  outline: none;
+  box-shadow: 0 0 0 2px rgb(1 118 211 / 16%);
+}
+
+.map-expand-button-icon {
+  font-size: 1rem;
+  line-height: 1;
+}
+
 .collapsed-sidebar-handle {
   position: absolute;
   top: 0.7rem;
@@ -310,6 +376,13 @@
   background: #ffffff;
   overflow: hidden;
   min-height: 18rem;
+}
+
+.map-expand-target-expanded .map-frame,
+.map-expand-target:fullscreen .map-frame,
+.map-expand-target:-webkit-full-screen .map-frame {
+  height: 100%;
+  min-height: 0;
 }
 
 .map-root {
