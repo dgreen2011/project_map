@@ -6,15 +6,15 @@
   border: 1px solid #d8dde6;
   border-radius: 0.5rem;
   background: #ffffff;
-  padding: 0.8rem;
+  padding: 0.85rem;
 }
 
 .prm-segment-editor-header {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 0.75rem;
-  margin-bottom: 0.7rem;
+  gap: 0.8rem;
+  margin-bottom: 0.75rem;
 }
 
 .prm-segment-editor-title-wrap {
@@ -30,26 +30,71 @@
 }
 
 .prm-segment-editor-subtitle {
-  margin-top: 0.2rem;
+  margin-top: 0.22rem;
   font-size: 0.8rem;
   color: #5c5c5c;
-  line-height: 1.4;
+  line-height: 1.45;
 }
 
-.prm-segment-editor-mode-actions {
+.prm-segment-editor-actions {
   display: flex;
   align-items: center;
-  gap: 0.45rem;
-  flex-wrap: wrap;
   justify-content: flex-end;
+  gap: 0.55rem;
+  flex-wrap: wrap;
 }
 
-.prm-segment-editor-toolbar {
-  display: flex;
+.prm-segment-editor-button-group {
+  display: inline-flex;
   align-items: center;
   gap: 0.45rem;
   flex-wrap: wrap;
-  margin-bottom: 0.7rem;
+}
+
+.prm-segment-editor-button {
+  appearance: none;
+  border: 1px solid #c9c7c5;
+  border-radius: 0.42rem;
+  background: #ffffff;
+  color: #181818;
+  padding: 0.45rem 0.75rem;
+  font: inherit;
+  font-size: 0.78rem;
+  font-weight: 600;
+  line-height: 1.2;
+  cursor: pointer;
+  transition:
+    border-color 120ms ease,
+    background-color 120ms ease,
+    box-shadow 120ms ease,
+    color 120ms ease;
+}
+
+.prm-segment-editor-button:hover:not(:disabled),
+.prm-segment-editor-button:focus-visible:not(:disabled) {
+  border-color: #0176d3;
+  background: #f3f7ff;
+  color: #014486;
+  outline: none;
+  box-shadow: 0 0 0 2px rgb(1 118 211 / 16%);
+}
+
+.prm-segment-editor-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+  background: #f3f3f3;
+}
+
+.prm-segment-editor-button-active {
+  border-color: #0176d3;
+  background: #eef4ff;
+  color: #014486;
+  box-shadow: inset 0 0 0 1px #0176d3;
+}
+
+.prm-segment-editor-button-utility {
+  padding-left: 0.65rem;
+  padding-right: 0.65rem;
 }
 
 .prm-segment-map-frame {
@@ -129,12 +174,12 @@
   z-index: 7 !important;
 }
 
-@media (max-width: 700px) {
+@media (max-width: 760px) {
   .prm-segment-editor-header {
     flex-direction: column;
   }
 
-  .prm-segment-editor-mode-actions {
+  .prm-segment-editor-actions {
     justify-content: flex-start;
   }
 }
