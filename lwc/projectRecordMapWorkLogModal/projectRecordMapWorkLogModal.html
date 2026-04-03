@@ -1,0 +1,234 @@
+<template>
+  <section
+    role="dialog"
+    tabindex="-1"
+    aria-modal="true"
+    aria-labelledby="project-record-map-work-log-heading"
+    class="slds-modal slds-fade-in-open"
+  >
+    <div class="slds-modal__container prm-work-log-modal-container">
+      <header class="slds-modal__header prm-work-log-modal-header">
+        <lightning-button-icon
+          class="slds-modal__close"
+          icon-name="utility:close"
+          alternative-text="Close"
+          title="Close"
+          onclick={handleCloseClick}
+          disabled={isSavingWorkLog}
+        ></lightning-button-icon>
+
+        <h2
+          id="project-record-map-work-log-heading"
+          class="slds-text-heading_medium prm-work-log-modal-title"
+        >
+          Create Work Log
+        </h2>
+
+        <template if:true={showWorkLogTargetLink}>
+          <div class="prm-work-log-modal-subtitle">
+            <span>{workLogTargetTypeLabel}: </span>
+            <a
+              href={workLogTargetRecordUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              class="prm-work-log-target-link"
+            >
+              {workLogTargetName}
+            </a>
+          </div>
+        </template>
+
+        <template if:false={showWorkLogTargetLink}>
+          <template if:true={workLogTargetName}>
+            <div class="prm-work-log-modal-subtitle">
+              {workLogTargetTypeLabel}: {workLogTargetName}
+            </div>
+          </template>
+        </template>
+      </header>
+
+      <div class="slds-modal__content prm-work-log-modal-body" id="project-record-map-work-log-body">
+        <template if:true={isPreparingWorkLog}>
+          <div class="prm-work-log-spinner-wrap">
+            <lightning-spinner
+              size="small"
+              alternative-text="Preparing work log form"
+            ></lightning-spinner>
+          </div>
+        </template>
+
+        <template if:true={workLogContextError}>
+          <div class="message message-error">
+            <div class="message-title">Work Log Error</div>
+            <div>{workLogContextError}</div>
+          </div>
+        </template>
+
+        <template if:true={showWorkLogWarnings}>
+          <div class="prm-work-log-warning-list">
+            <template for:each={workLogWarnings} for:item="warning">
+              <div key={warning} class="message message-warning">
+                <div>{warning}</div>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <template if:true={workLogContext}>
+          <div class="prm-work-log-context-grid">
+            <template if:true={workLogContext.projectName}>
+              <div class="prm-work-log-context-item">
+                <div class="prm-work-log-context-label">Project</div>
+                <div class="prm-work-log-context-value">{workLogContext.projectName}</div>
+              </div>
+            </template>
+
+            <template if:true={workLogContext.productionLineAllocationName}>
+              <div class="prm-work-log-context-item">
+                <div class="prm-work-log-context-label">Production Line Allocation</div>
+                <div class="prm-work-log-context-value">
+                  {workLogContext.productionLineAllocationName}
+                </div>
+              </div>
+            </template>
+
+            <template if:true={workLogContext.serviceName}>
+              <div class="prm-work-log-context-item">
+                <div class="prm-work-log-context-label">Service</div>
+                <div class="prm-work-log-context-value">{workLogContext.serviceName}</div>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <template if:true={showWorkLogForm}>
+          <template if:true={workLogSaveError}>
+            <div class="message message-error prm-work-log-inline-message">
+              <div class="message-title">Save Error</div>
+              <div>{workLogSaveError}</div>
+            </div>
+          </template>
+
+          <lightning-record-edit-form
+            object-api-name="sitetracker__Production_Work_Log__c"
+            onsuccess={handleWorkLogFormSuccess}
+            onerror={handleWorkLogFormError}
+          >
+            <lightning-messages></lightning-messages>
+
+            <div class="prm-work-log-field-grid">
+              <template for:each={workLogVisibleFields} for:item="fieldItem">
+                <div key={fieldItem.apiName} class="prm-work-log-field-cell">
+                  <lightning-input-field
+                    field-name={fieldItem.apiName}
+                    value={fieldItem.value}
+                  ></lightning-input-field>
+                </div>
+              </template>
+            </div>
+
+            <template for:each={workLogHiddenFields} for:item="fieldItem">
+              <div key={fieldItem.apiName} class="slds-hide">
+                <lightning-input-field
+                  field-name={fieldItem.apiName}
+                  value={fieldItem.value}
+                ></lightning-input-field>
+              </div>
+            </template>
+          </lightning-record-edit-form>
+        </template>
+
+        <template if:true={showWorkLogUploadStep}>
+          <template if:true={workLogSuccessMessage}>
+            <div class="message message-success prm-work-log-inline-message">
+              <div class="message-title">Work Log Created</div>
+              <div>{workLogSuccessMessage}</div>
+            </div>
+          </template>
+
+          <div class="prm-work-log-upload-section">
+            <div class="prm-work-log-upload-heading">Upload files</div>
+            <div class="prm-work-log-upload-help">
+              Files uploaded here will be linked to the new Work Log and to the selected
+              {workLogTargetTypeLabelLower}.
+            </div>
+
+            <lightning-file-upload
+              name="projectRecordMapWorkLogUploader"
+              label="Add files"
+              record-id={createdWorkLogId}
+              multiple
+              onuploadfinished={handleWorkLogUploadFinished}
+              disabled={isLinkingUploadedFiles}
+            ></lightning-file-upload>
+
+            <template if:true={isLinkingUploadedFiles}>
+              <div class="prm-work-log-spinner-wrap">
+                <lightning-spinner
+                  size="small"
+                  alternative-text="Linking uploaded files"
+                ></lightning-spinner>
+              </div>
+            </template>
+
+            <template if:true={workLogUploadMessage}>
+              <div class="message message-info prm-work-log-inline-message">
+                <div>{workLogUploadMessage}</div>
+              </div>
+            </template>
+          </div>
+        </template>
+      </div>
+
+      <template if:true={showWorkLogForm}>
+        <footer class="slds-modal__footer prm-work-log-modal-footer">
+          <div class="prm-work-log-modal-footer-actions">
+            <lightning-button
+              label="Cancel"
+              onclick={handleCloseClick}
+              disabled={isSavingWorkLog}
+            ></lightning-button>
+
+            <lightning-button
+              variant="brand"
+              label={workLogSaveButtonLabel}
+              onclick={handleSubmitWorkLog}
+              disabled={isSavingWorkLog}
+            ></lightning-button>
+          </div>
+        </footer>
+      </template>
+
+      <template if:true={showWorkLogUploadStep}>
+        <footer class="slds-modal__footer prm-work-log-modal-footer">
+          <div class="prm-work-log-modal-footer-actions">
+            <lightning-button
+              label="Open Work Log"
+              title="Open the newly created Work Log in a new tab"
+              onclick={handleOpenCreatedWorkLog}
+            ></lightning-button>
+
+            <lightning-button
+              variant="brand"
+              label="Done"
+              onclick={handleCloseClick}
+            ></lightning-button>
+          </div>
+        </footer>
+      </template>
+
+      <template if:true={showCloseOnlyFooter}>
+        <footer class="slds-modal__footer prm-work-log-modal-footer">
+          <div class="prm-work-log-modal-footer-actions">
+            <lightning-button
+              label="Close"
+              onclick={handleCloseClick}
+            ></lightning-button>
+          </div>
+        </footer>
+      </template>
+    </div>
+  </section>
+
+  <div class="slds-backdrop slds-backdrop_open prm-work-log-modal-backdrop"></div>
+</template>
