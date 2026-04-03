@@ -1,5 +1,8 @@
 import { api, LightningElement } from "lwc";
+import { ShowToastEvent } from "lightning/platformShowToastEvent";
 import getProjectMapData from "@salesforce/apex/ProjectRecordMapController.getProjectMapData";
+import getWorkLogModalContext from "@salesforce/apex/ProjectRecordMapController.getWorkLogModalContext";
+import linkUploadedFilesToWorkLogAndFeature from "@salesforce/apex/ProjectRecordMapController.linkUploadedFilesToWorkLogAndFeature";
 import { loadScript, loadStyle } from "lightning/platformResourceLoader";
 
 import leafletResource from "@salesforce/resourceUrl/leaflet_1_9_4";
@@ -7,15 +10,47 @@ import leafletResource from "@salesforce/resourceUrl/leaflet_1_9_4";
 const ALL_FILTER_VALUE = "__ALL__";
 const DEFAULT_MAP_CENTER = [39.8283, -98.5795];
 const DEFAULT_MAP_ZOOM = 4;
-const DEFAULT_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const DEFAULT_TILE_URL = "https://tile.openstreetmap.org/{z}/{y}.png";
 const DEFAULT_TILE_ATTRIBUTION = "&copy; OpenStreetMap contributors";
 const DEFAULT_POINT_COLOR = "#2f80ed";
 const DEFAULT_LINE_COLOR = "#0b8f86";
 const DEFAULT_POLYGON_COLOR = "#5779c1";
+const WORK_LOG_OBJECT_API_NAME = "sitetracker__Production_Work_Log__c";
+const WORK_LOG_STATUS_FIELD = "sitetracker__Status__c";
+const WORK_LOG_PROJECT_FIELD = "sitetracker__Project__c";
+const WORK_LOG_PLA_FIELD = "sitetracker__Production_Line_Allocation__c";
+const WORK_LOG_PPL_FIELD = "sitetracker__st_Production_Plan_Line__c";
+const WORK_LOG_SERVICE_FIELD = "sitetracker__Item__c";
+const WORK_LOG_SITE_FIELD = "sitetracker__Site__c";
+const WORK_LOG_SEGMENT_FIELD = "sitetracker__Segment__c";
+const WORK_LOG_START_DATE_FIELD = "sitetracker__Start_Date__c";
+const WORK_LOG_END_DATE_FIELD = "sitetracker__End_Date__c";
+const WORK_LOG_LAT_FIELD = "sitetracker__Location__Latitude__s";
+const WORK_LOG_LNG_FIELD = "sitetracker__Location__Longitude__s";
+const WORK_LOG_JOB_FIELD = "sitetracker__Job__c";
+const WORK_LOG_ACTIVITY_FIELD = "sitetracker__Activity__c";
+const WORK_LOG_ATTACHMENT_FIELD = "sitetracker__Attachment__c";
+const AUTO_HIDDEN_WORK_LOG_FIELDS = new Set([
+  WORK_LOG_PROJECT_FIELD,
+  WORK_LOG_PLA_FIELD,
+  WORK_LOG_PPL_FIELD,
+  WORK_LOG_SERVICE_FIELD,
+  WORK_LOG_SITE_FIELD,
+  WORK_LOG_SEGMENT_FIELD,
+  WORK_LOG_START_DATE_FIELD,
+  WORK_LOG_END_DATE_FIELD,
+  WORK_LOG_STATUS_FIELD,
+  WORK_LOG_LAT_FIELD,
+  WORK_LOG_LNG_FIELD,
+  WORK_LOG_JOB_FIELD,
+  WORK_LOG_ACTIVITY_FIELD,
+  WORK_LOG_ATTACHMENT_FIELD
+]);
 
 export default class ProjectRecordMap extends LightningElement {
   @api recordId;
   @api mapHeightPx = 520;
+  @api workLogFieldSetApiName;
 
   @api mapLayerRecordId1;
   @api relationshipFieldPathOverride1;
@@ -51,15 +86,33 @@ export default class ProjectRecordMap extends LightningElement {
   errorMessage = "";
   tileWarningMessage = "";
 
+  isWorkLogModalOpen = false;
+  isPreparingWorkLog = false;
+  isSavingWorkLog = false;
+  isLinkingUploadedFiles = false;
+  workLogContextError = "";
+  workLogSaveError = "";
+  workLogSuccessMessage = "";
+  workLogUploadMessage = "";
+  createdWorkLogId = "";
+  workLogContext = null;
+  workLogVisibleFields = [];
+  workLogHiddenFields = [];
+
   uiLayers = [];
 
+  popupActionListenerRegistered = false;
+  boundTemplateClickHandler = null;
+
   renderedCallback() {
+    this.ensurePopupActionListener();
     this.ensureBootstrapped();
     this.refreshIfNeeded();
   }
 
   disconnectedCallback() {
     this.destroyMap();
+    this.removePopupActionListener();
   }
 
   get mapStyle() {
@@ -123,6 +176,84 @@ export default class ProjectRecordMap extends LightningElement {
     return `${this.totalRenderedFeatureCount} visible feature${
       this.totalRenderedFeatureCount === 1 ? "" : "s"
     } across ${visibleLayerCount} visible layer${visibleLayerCount === 1 ? "" : "s"}`;
+  }
+
+  get workLogTargetName() {
+    return this.workLogContext?.targetName || "";
+  }
+
+  get workLogTargetTypeLabel() {
+    return (
+      this.workLogContext?.targetTypeLabel ||
+      this.getObjectTypeLabel(this.workLogContext?.targetObjectApiName)
+    );
+  }
+
+  get workLogTargetTypeLabelLower() {
+    const label = this.workLogTargetTypeLabel || "record";
+    return label.toLowerCase();
+  }
+
+  get workLogProjectName() {
+    return this.workLogContext?.projectName || "";
+  }
+
+  get workLogPlaName() {
+    return this.workLogContext?.productionLineAllocationName || "";
+  }
+
+  get workLogServiceName() {
+    return this.workLogContext?.serviceName || "";
+  }
+
+  get hasWorkLogContextSummary() {
+    return Boolean(
+      this.workLogTargetName || this.workLogProjectName || this.workLogPlaName || this.workLogServiceName
+    );
+  }
+
+  get showWorkLogForm() {
+    return (
+      this.isWorkLogModalOpen &&
+      !this.createdWorkLogId &&
+      !this.isPreparingWorkLog &&
+      !this.workLogContextError &&
+      Array.isArray(this.workLogVisibleFields) &&
+      Array.isArray(this.workLogHiddenFields)
+    );
+  }
+
+  get showWorkLogUploadStep() {
+    return this.isWorkLogModalOpen && Boolean(this.createdWorkLogId);
+  }
+
+  get workLogSaveButtonLabel() {
+    return this.isSavingWorkLog ? "Creating..." : "Create Work Log";
+  }
+
+  ensurePopupActionListener() {
+    if (this.popupActionListenerRegistered) {
+      return;
+    }
+
+    this.boundTemplateClickHandler = this.handleTemplateClick.bind(this);
+    this.template.addEventListener("click", this.boundTemplateClickHandler);
+    this.popupActionListenerRegistered = true;
+  }
+
+  removePopupActionListener() {
+    if (!this.popupActionListenerRegistered || !this.boundTemplateClickHandler) {
+      return;
+    }
+
+    try {
+      this.template.removeEventListener("click", this.boundTemplateClickHandler);
+    } catch (error) {
+      // swallow cleanup errors
+    }
+
+    this.boundTemplateClickHandler = null;
+    this.popupActionListenerRegistered = false;
   }
 
   async ensureBootstrapped() {
@@ -298,7 +429,7 @@ export default class ProjectRecordMap extends LightningElement {
     this.uiLayers.forEach((layer) => {
       previousVisibilityBySlot[layer.slotNumber] = layer.isVisible;
       previousFilterBySlot[layer.slotNumber] = layer.selectedFilterValue;
-          });
+    });
 
     const responseLayers = Array.isArray(response?.layers) ? response.layers : [];
 
@@ -361,7 +492,7 @@ export default class ProjectRecordMap extends LightningElement {
       skippedRecordCount: Number(layer?.skippedRecordCount) || 0,
       warnings: safeWarnings,
       errorMessage: layer?.errorMessage || "",
-      features: safeFeatures.map((feature) => this.normalizeFeatureResponse(feature)),
+      features: safeFeatures.map((feature) => this.normalizeFeatureResponse(layer, feature)),
       isVisible: true,
       selectedFilterValue: ALL_FILTER_VALUE,
       selectedFilterLabel: "All",
@@ -389,7 +520,7 @@ export default class ProjectRecordMap extends LightningElement {
     });
   }
 
-  normalizeFeatureResponse(feature) {
+  normalizeFeatureResponse(layer, feature) {
     return {
       recordId: feature?.recordId || "",
       name: feature?.name || "",
@@ -400,7 +531,11 @@ export default class ProjectRecordMap extends LightningElement {
       geometrySourceFieldPath: feature?.geometrySourceFieldPath || "",
       filterValue: feature?.filterValue || "",
       styleValue: feature?.styleValue || "",
-      popupValues: Array.isArray(feature?.popupValues) ? feature.popupValues : []
+      popupValues: Array.isArray(feature?.popupValues) ? feature.popupValues : [],
+      canCreateWorkLog: Boolean(feature?.canCreateWorkLog),
+      productionLineAllocationId: feature?.productionLineAllocationId || "",
+      targetObjectApiName:
+        feature?.targetObjectApiName || feature?.objectApiName || layer?.objectApiName || ""
     };
   }
 
@@ -598,7 +733,7 @@ export default class ProjectRecordMap extends LightningElement {
     }
 
     const renderedLayers = [];
-        coordinateSets.forEach((coordinateSet) => {
+    coordinateSets.forEach((coordinateSet) => {
       const latLngs = this.toLatLngs(coordinateSet);
       if (latLngs.length < 2) {
         return;
@@ -897,7 +1032,8 @@ export default class ProjectRecordMap extends LightningElement {
     value.forEach((item) => this.collectCoordinateSetsRecursively(item, collector));
     return collector;
   }
-    isCoordinateSet(value) {
+
+  isCoordinateSet(value) {
     return (
       Array.isArray(value) &&
       value.length > 0 &&
@@ -929,13 +1065,29 @@ export default class ProjectRecordMap extends LightningElement {
       return "#";
     }
 
-    if (layer?.objectApiName) {
-      return `/lightning/r/${encodeURIComponent(layer.objectApiName)}/${encodeURIComponent(
+    const objectApiName = layer?.objectApiName || feature?.targetObjectApiName;
+    if (objectApiName) {
+      return `/lightning/r/${encodeURIComponent(objectApiName)}/${encodeURIComponent(
         feature.recordId
       )}/view`;
     }
 
     return `/${encodeURIComponent(feature.recordId)}`;
+  }
+
+  shouldShowWorkLogAction(layer, feature) {
+    const objectApiName = this.normalizeString(
+      feature?.targetObjectApiName || layer?.objectApiName || ""
+    );
+    const lowerObjectName = objectApiName.toLowerCase();
+    const isSupportedObject =
+      lowerObjectName === "sitetracker__site__c" || lowerObjectName === "sitetracker__segment__c";
+
+    if (!isSupportedObject) {
+      return false;
+    }
+
+    return Boolean(feature?.canCreateWorkLog || feature?.productionLineAllocationId);
   }
 
   buildPopupHtml(layer, feature) {
@@ -955,12 +1107,35 @@ export default class ProjectRecordMap extends LightningElement {
       .filter((markup) => Boolean(markup))
       .join("");
 
+    const actionMarkup = this.shouldShowWorkLogAction(layer, feature)
+      ? `
+        <div class="prm-popup-footer">
+          <button
+            class="prm-popup-action-button"
+            type="button"
+            title="Create Work Log"
+            aria-label="Create Work Log"
+            data-worklog-action="true"
+            data-record-id="${this.escapeHtml(feature.recordId || "")}" 
+            data-object-api-name="${this.escapeHtml(feature.targetObjectApiName || layer?.objectApiName || "")}" 
+            data-feature-name="${escapedName}"
+          >
+            <span class="prm-popup-action-icon">＋</span>
+          </button>
+        </div>`
+      : "";
+
     return `
       <div class="prm-popup">
-        <a class="prm-popup-title-link" href="${escapedUrl}" target="_blank" rel="noopener noreferrer">
-          ${escapedName}
-        </a>
-        ${detailRows || '<div class="prm-popup-empty">No popup details configured.</div>'}
+        <div class="prm-popup-header">
+          <a class="prm-popup-title-link" href="${escapedUrl}" target="_blank" rel="noopener noreferrer">
+            ${escapedName}
+          </a>
+        </div>
+        <div class="prm-popup-values">
+          ${detailRows || '<div class="prm-popup-empty">No popup details configured.</div>'}
+        </div>
+        ${actionMarkup}
       </div>
     `;
   }
@@ -977,6 +1152,194 @@ export default class ProjectRecordMap extends LightningElement {
     }
 
     return rawValue;
+  }
+
+  handleTemplateClick(event) {
+    const actionButton = event.target?.closest?.('[data-worklog-action="true"]');
+    if (!actionButton) {
+      return;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+
+    const targetRecordId = actionButton.dataset.recordId;
+    const targetObjectApiName = actionButton.dataset.objectApiName;
+    const featureName = actionButton.dataset.featureName;
+
+    if (!targetRecordId || !targetObjectApiName) {
+      this.dispatchToast("Work Log Error", "Unable to determine which record was clicked.", "error");
+      return;
+    }
+
+    this.openWorkLogModal({
+      targetRecordId,
+      targetObjectApiName,
+      featureName
+    });
+  }
+
+  async openWorkLogModal({ targetRecordId, targetObjectApiName, featureName }) {
+    this.resetWorkLogModalState();
+    this.isWorkLogModalOpen = true;
+    this.isPreparingWorkLog = true;
+    this.workLogContext = {
+      targetRecordId,
+      targetObjectApiName,
+      targetName: featureName || ""
+    };
+
+    try {
+      const response = await getWorkLogModalContext({
+        projectId: this.recordId,
+        targetRecordId,
+        targetObjectApiName,
+        workLogFieldSetApiName: this.normalizeString(this.workLogFieldSetApiName)
+      });
+
+      this.applyWorkLogContext(response);
+    } catch (error) {
+      this.workLogContextError = this.reduceError(error);
+    } finally {
+      this.isPreparingWorkLog = false;
+    }
+  }
+
+  applyWorkLogContext(context) {
+    if (!context) {
+      this.workLogContextError = "No Work Log context was returned.";
+      return;
+    }
+
+    const defaultValues = this.normalizeWorkLogDefaultValues(context.defaultValues);
+    const fieldModels = this.buildWorkLogFieldModels(context, defaultValues);
+
+    this.workLogContext = {
+      ...context,
+      targetTypeLabel: context.targetTypeLabel || this.getObjectTypeLabel(context.targetObjectApiName),
+      defaultValues
+    };
+    this.workLogVisibleFields = fieldModels.visibleFields;
+    this.workLogHiddenFields = fieldModels.hiddenFields;
+  }
+
+  normalizeWorkLogDefaultValues(defaultValues) {
+    const safeDefaults = defaultValues && typeof defaultValues === "object" ? defaultValues : {};
+    const normalizedDefaults = { ...safeDefaults };
+
+    if (!normalizedDefaults[WORK_LOG_STATUS_FIELD]) {
+      normalizedDefaults[WORK_LOG_STATUS_FIELD] = "Draft";
+    }
+
+    return normalizedDefaults;
+  }
+
+  buildWorkLogFieldModels(context, defaultValues) {
+    const rawFieldSetFields = Array.isArray(context?.fieldSetFields) ? context.fieldSetFields : [];
+    const orderedFieldApiNames = rawFieldSetFields
+      .map((fieldItem) => fieldItem?.apiName || fieldItem?.fieldApiName || fieldItem?.fullName)
+      .filter((apiName) => Boolean(apiName));
+
+    const visibleFields = [];
+    const hiddenFields = [];
+    const seenFieldNames = new Set();
+
+    orderedFieldApiNames.forEach((apiName) => {
+      if (seenFieldNames.has(apiName)) {
+        return;
+      }
+      seenFieldNames.add(apiName);
+
+      const fieldModel = {
+        apiName,
+        value: this.getDefaultFieldValue(defaultValues, apiName)
+      };
+
+      if (this.shouldHideWorkLogField(apiName, defaultValues)) {
+        hiddenFields.push(fieldModel);
+      } else {
+        visibleFields.push(fieldModel);
+      }
+    });
+
+    Object.keys(defaultValues).forEach((apiName) => {
+      if (!apiName || seenFieldNames.has(apiName)) {
+        return;
+      }
+      seenFieldNames.add(apiName);
+      hiddenFields.push({
+        apiName,
+        value: this.getDefaultFieldValue(defaultValues, apiName)
+      });
+    });
+
+    return {
+      visibleFields,
+      hiddenFields
+    };
+  }
+
+  getDefaultFieldValue(defaultValues, apiName) {
+    if (!defaultValues || !apiName) {
+      return null;
+    }
+
+    return Object.prototype.hasOwnProperty.call(defaultValues, apiName) ? defaultValues[apiName] : null;
+  }
+
+  shouldHideWorkLogField(apiName, defaultValues) {
+    if (!apiName) {
+      return false;
+    }
+
+    if (AUTO_HIDDEN_WORK_LOG_FIELDS.has(apiName)) {
+      return true;
+    }
+
+    const hasDefaultValue = Object.prototype.hasOwnProperty.call(defaultValues || {}, apiName);
+    return hasDefaultValue && AUTO_HIDDEN_WORK_LOG_FIELDS.has(apiName);
+  }
+
+  handleCloseWorkLogModal(event) {
+    if (event) {
+      event.preventDefault();
+    }
+
+    if (this.isSavingWorkLog) {
+      return;
+    }
+
+    this.isWorkLogModalOpen = false;
+    this.resetWorkLogModalState();
+  }
+
+  resetWorkLogModalState() {
+    this.isPreparingWorkLog = false;
+    this.isSavingWorkLog = false;
+    this.isLinkingUploadedFiles = false;
+    this.workLogContextError = "";
+    this.workLogSaveError = "";
+    this.workLogSuccessMessage = "";
+    this.workLogUploadMessage = "";
+    this.createdWorkLogId = "";
+    this.workLogContext = null;
+    this.workLogVisibleFields = [];
+    this.workLogHiddenFields = [];
+  }
+
+  handleWorkLogFormSuccess(event) {
+    this.isSavingWorkLog = false;
+    this.workLogSaveError = "";
+    this.createdWorkLogId = event.detail?.id || "";
+    this.workLogSuccessMessage = this.createdWorkLogId
+      ? "The Work Log was created. You can upload files below."
+      : "The Work Log was created.";
+    this.dispatchToast("Work Log Created", "The Work Log was created successfully.", "success");
+  }
+
+  handleWorkLogFormError(event) {
+    this.isSavingWorkLog = false;
+    this.workLogSaveError = this.reduceRecordEditError(event.detail) || "Unable to create the Work Log.";
   }
 
   handleLayerVisibilityChange(event) {
@@ -1090,6 +1453,78 @@ export default class ProjectRecordMap extends LightningElement {
     this.loadProjectMapData();
   }
 
+  async handleWorkLogUploadFinished(event) {
+    const uploadedFiles = Array.isArray(event.detail?.files) ? event.detail.files : [];
+    if (!uploadedFiles.length || !this.createdWorkLogId) {
+      return;
+    }
+
+    const contentDocumentIds = uploadedFiles
+      .map((fileItem) => fileItem?.documentId)
+      .filter((documentId) => Boolean(documentId));
+
+    if (!contentDocumentIds.length) {
+      return;
+    }
+
+    this.isLinkingUploadedFiles = true;
+    this.workLogUploadMessage = "Linking uploaded files...";
+
+    try {
+      await linkUploadedFilesToWorkLogAndFeature({
+        workLogId: this.createdWorkLogId,
+        targetRecordId: this.workLogContext?.targetRecordId,
+        contentDocumentIds
+      });
+
+      const fileLabel = uploadedFiles.length === 1 ? "file was" : "files were";
+      this.workLogUploadMessage = `${uploadedFiles.length} ${fileLabel} uploaded and linked successfully.`;
+      this.dispatchToast("Files Linked", "Uploaded files were linked successfully.", "success");
+    } catch (error) {
+      this.workLogUploadMessage = this.reduceError(error);
+      this.dispatchToast("File Link Error", this.workLogUploadMessage, "error");
+    } finally {
+      this.isLinkingUploadedFiles = false;
+    }
+  }
+
+  handleOpenCreatedWorkLog() {
+    if (!this.createdWorkLogId) {
+      return;
+    }
+
+    const url = `/lightning/r/${encodeURIComponent(WORK_LOG_OBJECT_API_NAME)}/${encodeURIComponent(
+      this.createdWorkLogId
+    )}/view`;
+    window.open(url, "_blank", "noopener");
+  }
+
+  getObjectTypeLabel(objectApiName) {
+    const normalized = this.normalizeString(objectApiName)?.toLowerCase();
+    switch (normalized) {
+      case "sitetracker__site__c":
+        return "Site";
+      case "sitetracker__segment__c":
+        return "Segment";
+      case "sitetracker__area__c":
+        return "Area";
+      case WORK_LOG_OBJECT_API_NAME.toLowerCase():
+        return "Work Log";
+      default:
+        return "Record";
+    }
+  }
+
+  dispatchToast(title, message, variant) {
+    this.dispatchEvent(
+      new ShowToastEvent({
+        title,
+        message,
+        variant
+      })
+    );
+  }
+
   safeParseJson(value) {
     if (!value || typeof value !== "string") {
       return null;
@@ -1127,6 +1562,32 @@ export default class ProjectRecordMap extends LightningElement {
       .replaceAll(">", "&gt;")
       .replaceAll('"', "&quot;")
       .replaceAll("'", "&#39;");
+  }
+
+  reduceRecordEditError(detail) {
+    if (!detail) {
+      return "";
+    }
+
+    const fieldErrors = detail.output?.fieldErrors || {};
+    const fieldMessages = Object.values(fieldErrors)
+      .flat()
+      .map((item) => item?.message)
+      .filter((message) => Boolean(message));
+
+    const pageErrors = Array.isArray(detail.output?.errors)
+      ? detail.output.errors.map((item) => item?.message).filter((message) => Boolean(message))
+      : [];
+
+    if (fieldMessages.length || pageErrors.length) {
+      return [...fieldMessages, ...pageErrors].join("; ");
+    }
+
+    if (typeof detail.message === "string") {
+      return detail.message;
+    }
+
+    return "";
   }
 
   reduceError(error) {
