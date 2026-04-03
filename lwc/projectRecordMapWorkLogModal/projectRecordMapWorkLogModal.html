@@ -74,6 +74,17 @@
           </div>
         </template>
 
+        <template if:true={showTargetDetailFields}>
+          <div class="prm-work-log-target-detail-grid">
+            <template for:each={targetDetailFields} for:item="fieldItem">
+              <div key={fieldItem.apiName} class="prm-work-log-target-detail-item">
+                <div class="prm-work-log-target-detail-label">{fieldItem.label}</div>
+                <div class="prm-work-log-target-detail-value">{fieldItem.displayValue}</div>
+              </div>
+            </template>
+          </div>
+        </template>
+
         <template if:true={workLogContext}>
           <div class="prm-work-log-context-grid">
             <template if:true={workLogContext.projectName}>
@@ -109,6 +120,26 @@
             </div>
           </template>
 
+          <template if:true={showSegmentPathEditor}>
+            <div class="prm-work-log-segment-editor-wrap">
+              <c-project-record-map-segment-path-editor
+                segment-name={workLogTargetName}
+                segment-geometry-raw={segmentGeometryRaw}
+                onselectionchange={handleSegmentPathSelectionChange}
+              ></c-project-record-map-segment-path-editor>
+            </div>
+          </template>
+
+          <template if:true={showSegmentGeometryWarning}>
+            <div class="message message-warning prm-work-log-inline-message">
+              <div class="message-title">Segment Path Unavailable</div>
+              <div>
+                This Segment does not currently have GIS path geometry available, so partial completion
+                drawing cannot be shown for this Work Log.
+              </div>
+            </div>
+          </template>
+
           <lightning-record-edit-form
             object-api-name="sitetracker__Production_Work_Log__c"
             onsuccess={handleWorkLogFormSuccess}
@@ -118,7 +149,7 @@
 
             <div class="prm-work-log-field-grid">
               <template for:each={workLogVisibleFields} for:item="fieldItem">
-                <div key={fieldItem.apiName} class="prm-work-log-field-cell">
+                <div key={fieldItem.key} class="prm-work-log-field-cell">
                   <lightning-input-field
                     field-name={fieldItem.apiName}
                     value={fieldItem.value}
@@ -128,7 +159,7 @@
             </div>
 
             <template for:each={workLogHiddenFields} for:item="fieldItem">
-              <div key={fieldItem.apiName} class="slds-hide">
+              <div key={fieldItem.key} class="slds-hide">
                 <lightning-input-field
                   field-name={fieldItem.apiName}
                   value={fieldItem.value}
@@ -220,10 +251,7 @@
       <template if:true={showCloseOnlyFooter}>
         <footer class="slds-modal__footer prm-work-log-modal-footer">
           <div class="prm-work-log-modal-footer-actions">
-            <lightning-button
-              label="Close"
-              onclick={handleCloseClick}
-            ></lightning-button>
+            <lightning-button label="Close" onclick={handleCloseClick}></lightning-button>
           </div>
         </footer>
       </template>
