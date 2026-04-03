@@ -7,8 +7,12 @@ const DEFAULT_MAP_HEIGHT_PX = 220;
 const DEFAULT_MAP_PADDING = [18, 18];
 const DEFAULT_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
 const DEFAULT_TILE_ATTRIBUTION = "&copy; OpenStreetMap contributors";
+const SNAP_TOLERANCE_PX = 22;
+const SELECTION_MODE_NONE = "";
+const SELECTION_MODE_FULL = "full";
+const SELECTION_MODE_PARTIAL = "partial";
 const BASE_LINE_STYLE = {
-  color: "#91a6bd",
+  color: "#9fb0c3",
   weight: 4,
   opacity: 0.9,
   lineCap: "round",
@@ -21,10 +25,10 @@ const SELECTED_LINE_STYLE = {
   lineCap: "round",
   lineJoin: "round"
 };
-const SELECTED_POINT_STYLE = {
-  radius: 4,
+const SELECTION_POINT_STYLE = {
+  radius: 5,
   color: "#0176d3",
-  weight: 1,
+  weight: 2,
   opacity: 1,
   fillColor: "#ffffff",
   fillOpacity: 1
@@ -46,11 +50,13 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
   boundMapClickHandler = null;
   pendingViewportSyncTimer = null;
 
-  selectionMode = "full";
-  partialCoordinates = [];
+  selectionMode = SELECTION_MODE_NONE;
+  partialSelectionPoints = [];
+  partialPathCoordinates = [];
   fullCoordinateSets = [];
   fullPathValue = "";
   errorMessage = "";
+  interactionMessage = "";
 
   renderedCallback() {
     this.ensureBootstrapped();
@@ -67,20 +73,28 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
     return `height: ${safeHeight}px;`;
   }
 
+  get isSelectionPending() {
+    return this.selectionMode === SELECTION_MODE_NONE;
+  }
+
   get isFullMode() {
-    return this.selectionMode === "full";
+    return this.selectionMode === SELECTION_MODE_FULL;
   }
 
   get isPartialMode() {
-    return this.selectionMode === "partial";
+    return this.selectionMode === SELECTION_MODE_PARTIAL;
   }
 
-  get fullButtonVariant() {
-    return this.isFullMode ? "brand" : "neutral";
+  get fullButtonClass() {
+    return this.buildModeButtonClass(this.isFullMode);
   }
 
-  get partialButtonVariant() {
-    return this.isPartialMode ? "brand" : "neutral";
+  get partialButtonClass() {
+    return this.buildModeButtonClass(this.isPartialMode);
+  }
+
+  get utilityButtonClass() {
+    return "prm-segment-editor-button prm-segment-editor-button-utility";
   }
 
   get hasSegmentGeometry() {
@@ -104,19 +118,39 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
   }
 
   get canUndoPartial() {
-    return this.partialCoordinates.length > 0;
+    return this.partialSelectionPoints.length > 0;
   }
 
   get canClearPartial() {
-    return this.partialCoordinates.length > 0;
+    return this.partialSelectionPoints.length > 0;
   }
 
   get helperText() {
-    if (this.isFullMode) {
-      return "Full Segment is selected. The entire Segment path will be saved to the Work Log.";
+    if (this.hasGeometryError) {
+      return "The Segment geometry could not be read.";
     }
 
-    return "Partial Segment is selected. Click along the completed portion of the line to draw the path that should be saved.";
+    if (this.isFullMode) {
+      return "The full Segment will be saved to the Work Log.";
+    }
+
+    if (this.isPartialMode) {
+      if (this.interactionMessage) {
+        return this.interactionMessage;
+      }
+
+      if (this.partialSelectionPoints.length === 0) {
+        return "Click the start point and end point on the Segment. The saved path will stay on the Segment line.";
+      }
+
+      if (this.partialSelectionPoints.length === 1) {
+        return "Now click the end point on the Segment.";
+      }
+
+      return "The highlighted portion will be saved to the Work Log. Click again to start a new selection.";
+    }
+
+    return "Choose Full Segment or Partial Segment.";
   }
 
   async ensureBootstrapped() {
@@ -213,12 +247,24 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
     this.mapReady = false;
   }
 
+  buildModeButtonClass(isActive) {
+    return [
+      "prm-segment-editor-button",
+      isActive ? "prm-segment-editor-button-active" : ""
+    ]
+      .filter((className) => Boolean(className))
+      .join(" ");
+  }
+
   handleSelectFull() {
     if (this.isFullMode) {
       return;
     }
 
-    this.selectionMode = "full";
+    this.selectionMode = SELECTION_MODE_FULL;
+    this.partialSelectionPoints = [];
+    this.partialPathCoordinates = [];
+    this.interactionMessage = "";
     this.renderMapState();
     this.notifySelectionChange();
   }
@@ -228,7 +274,10 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
       return;
     }
 
-    this.selectionMode = "partial";
+    this.selectionMode = SELECTION_MODE_PARTIAL;
+    this.partialSelectionPoints = [];
+    this.partialPathCoordinates = [];
+    this.interactionMessage = "";
     this.renderMapState();
     this.notifySelectionChange();
   }
@@ -238,7 +287,9 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
       return;
     }
 
-    this.partialCoordinates = this.partialCoordinates.slice(0, -1);
+    this.partialSelectionPoints = this.partialSelectionPoints.slice(0, -1);
+    this.partialPathCoordinates = this.buildPartialPathCoordinates(this.partialSelectionPoints);
+    this.interactionMessage = "";
     this.renderMapState();
     this.notifySelectionChange();
   }
@@ -248,25 +299,208 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
       return;
     }
 
-    this.partialCoordinates = [];
+    this.partialSelectionPoints = [];
+    this.partialPathCoordinates = [];
+    this.interactionMessage = "";
     this.renderMapState();
     this.notifySelectionChange();
   }
 
   handleMapClick(event) {
-    if (!this.isPartialMode || !this.hasSegmentGeometry) {
+    if (!this.isPartialMode || !this.hasSegmentGeometry || !this.map) {
       return;
     }
 
-    const latitude = this.toNumber(event?.latlng?.lat);
-    const longitude = this.toNumber(event?.latlng?.lng);
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+    const preferredCoordinateSetIndex =
+      this.partialSelectionPoints.length === 1 ? this.partialSelectionPoints[0].coordinateSetIndex : null;
+
+    const snapPoint = this.findClosestSnapPoint(event?.latlng, preferredCoordinateSetIndex);
+    if (!snapPoint) {
+      this.interactionMessage = "Click directly on the Segment line to select the completed portion.";
+      this.notifySelectionChange();
       return;
     }
 
-    this.partialCoordinates = [...this.partialCoordinates, [longitude, latitude]];
+    this.interactionMessage = "";
+
+    if (this.partialSelectionPoints.length >= 2) {
+      this.partialSelectionPoints = [snapPoint];
+      this.partialPathCoordinates = [];
+    } else {
+      this.partialSelectionPoints = [...this.partialSelectionPoints, snapPoint];
+      this.partialPathCoordinates = this.buildPartialPathCoordinates(this.partialSelectionPoints);
+    }
+
     this.renderMapState();
     this.notifySelectionChange();
+  }
+
+  findClosestSnapPoint(latLng, preferredCoordinateSetIndex = null) {
+    if (!this.map || !latLng) {
+      return null;
+    }
+
+    const latitude = this.toNumber(latLng.lat);
+    const longitude = this.toNumber(latLng.lng);
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return null;
+    }
+
+    const clickPoint = this.map.latLngToContainerPoint([latitude, longitude]);
+    let bestCandidate = null;
+
+    this.fullCoordinateSets.forEach((coordinateSet, coordinateSetIndex) => {
+      if (preferredCoordinateSetIndex !== null && coordinateSetIndex !== preferredCoordinateSetIndex) {
+        return;
+      }
+
+      let cumulativeDistance = 0;
+
+      for (let segmentIndex = 0; segmentIndex < coordinateSet.length - 1; segmentIndex += 1) {
+        const start = coordinateSet[segmentIndex];
+        const end = coordinateSet[segmentIndex + 1];
+        const projection = this.projectPointOntoSegment(longitude, latitude, start, end);
+        const segmentLength = this.measureCoordinateDistance(start, end);
+
+        if (!projection || segmentLength <= 0) {
+          cumulativeDistance += segmentLength;
+          continue;
+        }
+
+        const projectedPoint = this.map.latLngToContainerPoint([
+          projection.latitude,
+          projection.longitude
+        ]);
+        const pixelDistance = clickPoint.distanceTo(projectedPoint);
+
+        const candidate = {
+          coordinateSetIndex,
+          segmentIndex,
+          t: projection.t,
+          coordinate: [projection.longitude, projection.latitude],
+          progress: cumulativeDistance + segmentLength * projection.t,
+          pixelDistance
+        };
+
+        if (!bestCandidate || candidate.pixelDistance < bestCandidate.pixelDistance) {
+          bestCandidate = candidate;
+        }
+
+        cumulativeDistance += segmentLength;
+      }
+    });
+
+    if (!bestCandidate || bestCandidate.pixelDistance > SNAP_TOLERANCE_PX) {
+      return null;
+    }
+
+    return bestCandidate;
+  }
+
+  projectPointOntoSegment(longitude, latitude, start, end) {
+    const ax = this.toNumber(start?.[0]);
+    const ay = this.toNumber(start?.[1]);
+    const bx = this.toNumber(end?.[0]);
+    const by = this.toNumber(end?.[1]);
+
+    if (![ax, ay, bx, by].every((value) => Number.isFinite(value))) {
+      return null;
+    }
+
+    const abx = bx - ax;
+    const aby = by - ay;
+    const lengthSquared = abx * abx + aby * aby;
+    if (lengthSquared <= 0) {
+      return null;
+    }
+
+    let t = ((longitude - ax) * abx + (latitude - ay) * aby) / lengthSquared;
+    t = Math.max(0, Math.min(1, t));
+
+    return {
+      t,
+      longitude: ax + abx * t,
+      latitude: ay + aby * t
+    };
+  }
+
+  buildPartialPathCoordinates(selectionPoints) {
+    if (!Array.isArray(selectionPoints) || selectionPoints.length < 2) {
+      return [];
+    }
+
+    const [rawStart, rawEnd] = selectionPoints;
+    if (rawStart.coordinateSetIndex !== rawEnd.coordinateSetIndex) {
+      return [];
+    }
+
+    const coordinateSet = this.fullCoordinateSets[rawStart.coordinateSetIndex];
+    if (!Array.isArray(coordinateSet) || coordinateSet.length < 2) {
+      return [];
+    }
+
+    const [startSnap, endSnap] =
+      rawStart.progress <= rawEnd.progress ? [rawStart, rawEnd] : [rawEnd, rawStart];
+
+    const partialCoordinates = [startSnap.coordinate];
+
+    for (let vertexIndex = startSnap.segmentIndex + 1; vertexIndex <= endSnap.segmentIndex; vertexIndex += 1) {
+      partialCoordinates.push(coordinateSet[vertexIndex]);
+    }
+
+    partialCoordinates.push(endSnap.coordinate);
+
+    const normalizedCoordinates = this.normalizeCoordinateList(partialCoordinates);
+    return normalizedCoordinates.length >= 2 ? normalizedCoordinates : [];
+  }
+
+  normalizeCoordinateList(coordinates) {
+    if (!Array.isArray(coordinates)) {
+      return [];
+    }
+
+    const normalized = [];
+
+    coordinates.forEach((coordinate) => {
+      const longitude = this.toNumber(coordinate?.[0]);
+      const latitude = this.toNumber(coordinate?.[1]);
+      if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+        return;
+      }
+
+      const nextCoordinate = [longitude, latitude];
+      const previousCoordinate = normalized[normalized.length - 1];
+      if (previousCoordinate && this.areCoordinatesEqual(previousCoordinate, nextCoordinate)) {
+        return;
+      }
+
+      normalized.push(nextCoordinate);
+    });
+
+    return normalized;
+  }
+
+  areCoordinatesEqual(firstCoordinate, secondCoordinate) {
+    const epsilon = 0.0000001;
+    return (
+      Math.abs(this.toNumber(firstCoordinate?.[0]) - this.toNumber(secondCoordinate?.[0])) <= epsilon &&
+      Math.abs(this.toNumber(firstCoordinate?.[1]) - this.toNumber(secondCoordinate?.[1])) <= epsilon
+    );
+  }
+
+  measureCoordinateDistance(start, end) {
+    const startLongitude = this.toNumber(start?.[0]);
+    const startLatitude = this.toNumber(start?.[1]);
+    const endLongitude = this.toNumber(end?.[0]);
+    const endLatitude = this.toNumber(end?.[1]);
+
+    if (![startLongitude, startLatitude, endLongitude, endLatitude].every((value) => Number.isFinite(value))) {
+      return 0;
+    }
+
+    const deltaLongitude = endLongitude - startLongitude;
+    const deltaLatitude = endLatitude - startLatitude;
+    return Math.sqrt(deltaLongitude * deltaLongitude + deltaLatitude * deltaLatitude);
   }
 
   notifySelectionChange() {
@@ -276,8 +510,8 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
     if (this.isFullMode) {
       pathValue = this.fullPathValue;
       isValid = Boolean(pathValue);
-    } else if (this.partialCoordinates.length >= 2) {
-      pathValue = JSON.stringify([this.partialCoordinates]);
+    } else if (this.isPartialMode && this.partialPathCoordinates.length >= 2) {
+      pathValue = JSON.stringify([this.partialPathCoordinates]);
       isValid = true;
     }
 
@@ -323,13 +557,19 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
           this.selectedLayerGroup.addLayer(window.L.polyline(latLngs, SELECTED_LINE_STYLE));
         }
       });
-    } else {
-      const partialLatLngs = this.toLatLngs(this.partialCoordinates);
+    }
+
+    if (this.isPartialMode) {
+      const partialLatLngs = this.toLatLngs(this.partialPathCoordinates);
       if (partialLatLngs.length >= 2) {
         this.selectedLayerGroup.addLayer(window.L.polyline(partialLatLngs, SELECTED_LINE_STYLE));
       }
-      partialLatLngs.forEach((latLng) => {
-        this.selectedLayerGroup.addLayer(window.L.circleMarker(latLng, SELECTED_POINT_STYLE));
+
+      this.partialSelectionPoints.forEach((selectionPoint) => {
+        const latLng = this.toLatLngs([selectionPoint.coordinate])[0];
+        if (latLng) {
+          this.selectedLayerGroup.addLayer(window.L.circleMarker(latLng, SELECTION_POINT_STYLE));
+        }
       });
     }
 
