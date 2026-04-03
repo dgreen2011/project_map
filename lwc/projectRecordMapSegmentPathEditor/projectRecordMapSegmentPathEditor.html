@@ -6,35 +6,49 @@
         <div class="prm-segment-editor-subtitle">{helperText}</div>
       </div>
 
-      <div class="prm-segment-editor-mode-actions">
-        <lightning-button
-          label="Full Segment"
-          variant={fullButtonVariant}
-          onclick={handleSelectFull}
-        ></lightning-button>
-        <lightning-button
-          label="Partial Segment"
-          variant={partialButtonVariant}
-          onclick={handleSelectPartial}
-          disabled={disablePartialModeButton}
-        ></lightning-button>
+      <div class="prm-segment-editor-actions">
+        <div class="prm-segment-editor-button-group">
+          <button
+            class={fullButtonClass}
+            type="button"
+            onclick={handleSelectFull}
+            aria-pressed={isFullMode}
+          >
+            Full Segment
+          </button>
+          <button
+            class={partialButtonClass}
+            type="button"
+            onclick={handleSelectPartial}
+            aria-pressed={isPartialMode}
+            disabled={disablePartialModeButton}
+          >
+            Partial Segment
+          </button>
+        </div>
+
+        <template if:true={isPartialMode}>
+          <div class="prm-segment-editor-button-group prm-segment-editor-button-group-utility">
+            <button
+              class={utilityButtonClass}
+              type="button"
+              onclick={handleUndoPartial}
+              disabled={disableUndoButton}
+            >
+              Undo
+            </button>
+            <button
+              class={utilityButtonClass}
+              type="button"
+              onclick={handleClearPartial}
+              disabled={disableClearButton}
+            >
+              Clear
+            </button>
+          </div>
+        </template>
       </div>
     </div>
-
-    <template if:true={isPartialMode}>
-      <div class="prm-segment-editor-toolbar">
-        <lightning-button
-          label="Undo"
-          onclick={handleUndoPartial}
-          disabled={disableUndoButton}
-        ></lightning-button>
-        <lightning-button
-          label="Clear"
-          onclick={handleClearPartial}
-          disabled={disableClearButton}
-        ></lightning-button>
-      </div>
-    </template>
 
     <template if:true={errorMessage}>
       <div class="message message-warning">
