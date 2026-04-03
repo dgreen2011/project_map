@@ -5,6 +5,8 @@ import leafletResource from "@salesforce/resourceUrl/leaflet_1_9_4";
 
 const DEFAULT_MAP_HEIGHT_PX = 220;
 const DEFAULT_MAP_PADDING = [18, 18];
+const DEFAULT_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const DEFAULT_TILE_ATTRIBUTION = "&copy; OpenStreetMap contributors";
 const BASE_LINE_STYLE = {
   color: "#91a6bd",
   weight: 4,
@@ -38,6 +40,7 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
   mapReady = false;
 
   map = null;
+  tileLayer = null;
   baseLayerGroup = null;
   selectedLayerGroup = null;
   boundMapClickHandler = null;
@@ -84,7 +87,6 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
     return Array.isArray(this.fullCoordinateSets) && this.fullCoordinateSets.length > 0;
   }
 
-
   get hasGeometryError() {
     return Boolean(this.errorMessage);
   }
@@ -128,8 +130,14 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
       this.librariesReady = true;
 
       this.initializeStateFromGeometry();
-      this.initializeMap();
-      this.renderMapState();
+
+      if (this.hasSegmentGeometry) {
+        await this.waitForMapContainerReady();
+        this.initializeMap();
+        await this.waitForLayoutStabilization();
+        this.renderMapState();
+      }
+
       this.notifySelectionChange();
     })().catch((error) => {
       this.errorMessage = this.reduceError(error);
@@ -167,6 +175,12 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
       scrollWheelZoom: false
     });
 
+    this.tileLayer = window.L.tileLayer(DEFAULT_TILE_URL, {
+      attribution: DEFAULT_TILE_ATTRIBUTION,
+      maxZoom: 22
+    });
+    this.tileLayer.addTo(this.map);
+
     this.map.setView([39.8283, -98.5795], 4);
     this.boundMapClickHandler = this.handleMapClick.bind(this);
     this.map.on("click", this.boundMapClickHandler);
@@ -192,6 +206,7 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
     }
 
     this.map = null;
+    this.tileLayer = null;
     this.baseLayerGroup = null;
     this.selectedLayerGroup = null;
     this.boundMapClickHandler = null;
@@ -366,6 +381,39 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
       window.clearTimeout(this.pendingViewportSyncTimer);
       this.pendingViewportSyncTimer = null;
     }
+  }
+
+  async waitForMapContainerReady(maxAttempts = 12) {
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+      const mapContainer = this.template.querySelector('[data-id="segment-map"]');
+      if (mapContainer) {
+        return;
+      }
+
+      await this.waitForNextFrame();
+    }
+  }
+
+  waitForLayoutStabilization() {
+    return new Promise((resolve) => {
+      if (typeof window.requestAnimationFrame === "function") {
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(resolve);
+        });
+      } else {
+        window.setTimeout(resolve, 0);
+      }
+    });
+  }
+
+  waitForNextFrame() {
+    return new Promise((resolve) => {
+      if (typeof window.requestAnimationFrame === "function") {
+        window.requestAnimationFrame(() => resolve());
+      } else {
+        window.setTimeout(resolve, 0);
+      }
+    });
   }
 
   extractPolylineCoordinateSets(geometryRaw) {
