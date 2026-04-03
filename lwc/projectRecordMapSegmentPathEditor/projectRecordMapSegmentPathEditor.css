@@ -1,0 +1,140 @@
+:host {
+  display: block;
+}
+
+.prm-segment-editor-shell {
+  border: 1px solid #d8dde6;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  padding: 0.8rem;
+}
+
+.prm-segment-editor-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.7rem;
+}
+
+.prm-segment-editor-title-wrap {
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.prm-segment-editor-title {
+  font-size: 0.9rem;
+  font-weight: 700;
+  color: #181818;
+  line-height: 1.25;
+}
+
+.prm-segment-editor-subtitle {
+  margin-top: 0.2rem;
+  font-size: 0.8rem;
+  color: #5c5c5c;
+  line-height: 1.4;
+}
+
+.prm-segment-editor-mode-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+
+.prm-segment-editor-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+  margin-bottom: 0.7rem;
+}
+
+.prm-segment-map-frame {
+  border: 1px solid #d8dde6;
+  border-radius: 0.45rem;
+  overflow: hidden;
+  background: #eef4fb;
+}
+
+.prm-segment-map-root {
+  width: 100%;
+  min-height: 10rem;
+}
+
+.message {
+  border-radius: 0.45rem;
+  border: 1px solid;
+  padding: 0.7rem 0.8rem;
+  font-size: 0.8rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.message-title {
+  font-size: 0.74rem;
+  font-weight: 700;
+  margin-bottom: 0.2rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.message-warning {
+  color: #6f4a00;
+  background: #fdf6e5;
+  border-color: #f5d98b;
+}
+
+.prm-segment-map-root .leaflet-container,
+.prm-segment-map-root .leaflet-pane,
+.prm-segment-map-root .leaflet-top,
+.prm-segment-map-root .leaflet-bottom,
+.prm-segment-map-root .leaflet-control,
+.prm-segment-map-root .leaflet-popup,
+.prm-segment-map-root .leaflet-tooltip {
+  z-index: 0 !important;
+}
+
+.prm-segment-map-root .leaflet-map-pane {
+  z-index: 1 !important;
+}
+
+.prm-segment-map-root .leaflet-tile-pane {
+  z-index: 1 !important;
+}
+
+.prm-segment-map-root .leaflet-overlay-pane {
+  z-index: 2 !important;
+}
+
+.prm-segment-map-root .leaflet-shadow-pane {
+  z-index: 3 !important;
+}
+
+.prm-segment-map-root .leaflet-marker-pane {
+  z-index: 4 !important;
+}
+
+.prm-segment-map-root .leaflet-tooltip-pane {
+  z-index: 5 !important;
+}
+
+.prm-segment-map-root .leaflet-popup-pane {
+  z-index: 6 !important;
+}
+
+.prm-segment-map-root .leaflet-control-container {
+  z-index: 7 !important;
+}
+
+@media (max-width: 700px) {
+  .prm-segment-editor-header {
+    flex-direction: column;
+  }
+
+  .prm-segment-editor-mode-actions {
+    justify-content: flex-start;
+  }
+}
