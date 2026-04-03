@@ -6,8 +6,14 @@ public with sharing class ProjectRecordMapController {
     private static final String SEGMENT_OBJECT_API = 'sitetracker__Segment__c';
     private static final String FEATURE_PLA_FIELD = 'Production_Line_Allocation__c';
     private static final String DEFAULT_WORK_LOG_FIELD_SET = 'sitetracker__Create_Work_Logs_Form_GIS';
+    private static final String WORK_LOG_GIS_PATH_FIELD = 'sitetracker__st_GIS_Path__c';
+    private static final String SEGMENT_GEOMETRY_FIELD_API = 'sitetracker__Gis_Segment_Path__c';
     private static final String WORK_LOG_FALLBACK_LAT_FIELD = 'sitetracker__Location__Latitude__s';
     private static final String WORK_LOG_FALLBACK_LNG_FIELD = 'sitetracker__Location__Longitude__s';
+    private static final List<String> WORK_LOG_QUANTITY_FIELD_CANDIDATES = new List<String>{
+        'sitetracker__Quantity__c',
+        'Quantity__c'
+    };
     private static final Pattern SAFE_FIELD_PATH_PATTERN =
         Pattern.compile('^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)*$');
 
@@ -125,19 +131,32 @@ public with sharing class ProjectRecordMapController {
         @AuraEnabled public String featureName { get; set; }
         @AuraEnabled public String workLogObjectApiName { get; set; }
         @AuraEnabled public String fieldSetApiName { get; set; }
+        @AuraEnabled public String targetDetailFieldSetApiName { get; set; }
         @AuraEnabled public String statusValue { get; set; }
         @AuraEnabled public String startDateIso { get; set; }
         @AuraEnabled public String endDateIso { get; set; }
         @AuraEnabled public Id projectId { get; set; }
+        @AuraEnabled public String projectName { get; set; }
         @AuraEnabled public Id productionLineAllocationId { get; set; }
+        @AuraEnabled public String productionLineAllocationName { get; set; }
         @AuraEnabled public Id productionPlanLineId { get; set; }
         @AuraEnabled public Id serviceId { get; set; }
+        @AuraEnabled public String serviceName { get; set; }
         @AuraEnabled public Id jobId { get; set; }
         @AuraEnabled public Id activityId { get; set; }
         @AuraEnabled public Id siteId { get; set; }
         @AuraEnabled public Id segmentId { get; set; }
+        @AuraEnabled public String segmentGeometryRaw { get; set; }
+        @AuraEnabled public Map<String, String> defaultValues { get; set; }
+        @AuraEnabled public List<RecordDetailField> targetDetailFields { get; set; }
         @AuraEnabled public List<WorkLogFormField> formFields { get; set; }
         @AuraEnabled public List<String> warnings { get; set; }
+    }
+
+    public class RecordDetailField {
+        @AuraEnabled public String apiName { get; set; }
+        @AuraEnabled public String label { get; set; }
+        @AuraEnabled public String displayValue { get; set; }
     }
 
     public class WorkLogFormField {
@@ -246,7 +265,8 @@ public with sharing class ProjectRecordMapController {
         Id featureRecordId,
         String featureObjectApiName,
         Id projectId,
-        String fieldSetApiName
+        String fieldSetApiName,
+        String targetDetailFieldSetApiName
     ) {
         if (featureRecordId == null) {
             throw handledException('Feature record Id is required.');
@@ -264,9 +284,12 @@ public with sharing class ProjectRecordMapController {
         response.fieldSetApiName = String.isBlank(fieldSetApiName)
             ? DEFAULT_WORK_LOG_FIELD_SET
             : normalizeString(fieldSetApiName);
+        response.targetDetailFieldSetApiName = normalizeString(targetDetailFieldSetApiName);
         response.statusValue = 'Draft';
         response.startDateIso = String.valueOf(Date.today());
         response.endDateIso = String.valueOf(Date.today());
+        response.defaultValues = new Map<String, String>();
+        response.targetDetailFields = new List<RecordDetailField>();
         response.formFields = new List<WorkLogFormField>();
         response.warnings = new List<String>();
 
@@ -276,13 +299,17 @@ public with sharing class ProjectRecordMapController {
                     Id,
                     Name,
                     Project__c,
+                    Project__r.Name,
                     Production_Line_Allocation__c,
                     Production_Line_Allocation__r.Id,
+                    Production_Line_Allocation__r.Name,
                     Production_Line_Allocation__r.sitetracker__Job__c,
                     Production_Line_Allocation__r.sitetracker__Activity__c,
                     Production_Line_Allocation__r.sitetracker__Production_Plan_Line__c,
                     Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Item__c,
-                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Project__c
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Item__r.Name,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Project__c,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Project__r.Name
                 FROM sitetracker__Site__c
                 WHERE Id = :featureRecordId
                 LIMIT 1
@@ -294,6 +321,7 @@ public with sharing class ProjectRecordMapController {
                 response,
                 projectId,
                 siteRecord.Project__c,
+                siteRecord.Project__r == null ? null : siteRecord.Project__r.Name,
                 siteRecord.Production_Line_Allocation__c,
                 siteRecord.Production_Line_Allocation__r
             );
@@ -303,13 +331,18 @@ public with sharing class ProjectRecordMapController {
                     Id,
                     Name,
                     Project__c,
+                    Project__r.Name,
                     Production_Line_Allocation__c,
                     Production_Line_Allocation__r.Id,
+                    Production_Line_Allocation__r.Name,
                     Production_Line_Allocation__r.sitetracker__Job__c,
                     Production_Line_Allocation__r.sitetracker__Activity__c,
                     Production_Line_Allocation__r.sitetracker__Production_Plan_Line__c,
                     Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Item__c,
-                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Project__c
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Item__r.Name,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Project__c,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Project__r.Name,
+                    sitetracker__Gis_Segment_Path__c
                 FROM sitetracker__Segment__c
                 WHERE Id = :featureRecordId
                 LIMIT 1
@@ -317,20 +350,33 @@ public with sharing class ProjectRecordMapController {
 
             response.featureName = segmentRecord.Name;
             response.segmentId = segmentRecord.Id;
+            response.segmentGeometryRaw = segmentRecord.sitetracker__Gis_Segment_Path__c;
             populateWorkLogDefaultsFromFeature(
                 response,
                 projectId,
                 segmentRecord.Project__c,
+                segmentRecord.Project__r == null ? null : segmentRecord.Project__r.Name,
                 segmentRecord.Production_Line_Allocation__c,
                 segmentRecord.Production_Line_Allocation__r
             );
         }
+
+        applyObjectSpecificWorkLogDefaults(response, normalizedObjectApiName);
 
         response.formFields = getCreateableFieldSetFields(
             WORK_LOG_OBJECT_API,
             response.fieldSetApiName,
             response.warnings
         );
+
+        if (String.isNotBlank(response.targetDetailFieldSetApiName)) {
+            response.targetDetailFields = getRecordDetailFields(
+                featureRecordId,
+                normalizedObjectApiName,
+                response.targetDetailFieldSetApiName,
+                response.warnings
+            );
+        }
 
         return response;
     }
@@ -787,6 +833,7 @@ public with sharing class ProjectRecordMapController {
         WorkLogLaunchResponse response,
         Id requestedProjectId,
         Id featureProjectId,
+        String featureProjectName,
         Id productionLineAllocationId,
         sitetracker__Production_Line_Allocation__c productionLineAllocation
     ) {
@@ -795,16 +842,25 @@ public with sharing class ProjectRecordMapController {
         }
 
         response.productionLineAllocationId = productionLineAllocationId;
+        response.productionLineAllocationName = productionLineAllocation.Name;
         response.productionPlanLineId = productionLineAllocation.sitetracker__Production_Plan_Line__c;
         response.serviceId = productionLineAllocation.sitetracker__Production_Plan_Line__r == null
             ? null
             : productionLineAllocation.sitetracker__Production_Plan_Line__r.sitetracker__Item__c;
+        response.serviceName = productionLineAllocation.sitetracker__Production_Plan_Line__r == null ||
+            productionLineAllocation.sitetracker__Production_Plan_Line__r.sitetracker__Item__r == null
+            ? null
+            : productionLineAllocation.sitetracker__Production_Plan_Line__r.sitetracker__Item__r.Name;
         response.jobId = productionLineAllocation.sitetracker__Job__c;
         response.activityId = productionLineAllocation.sitetracker__Activity__c;
 
         Id planLineProjectId = productionLineAllocation.sitetracker__Production_Plan_Line__r == null
             ? null
             : productionLineAllocation.sitetracker__Production_Plan_Line__r.sitetracker__Project__c;
+        String planLineProjectName = productionLineAllocation.sitetracker__Production_Plan_Line__r == null ||
+            productionLineAllocation.sitetracker__Production_Plan_Line__r.sitetracker__Project__r == null
+            ? null
+            : productionLineAllocation.sitetracker__Production_Plan_Line__r.sitetracker__Project__r.Name;
 
         if (requestedProjectId != null &&
             planLineProjectId != null &&
@@ -818,6 +874,9 @@ public with sharing class ProjectRecordMapController {
         response.projectId = planLineProjectId != null
             ? planLineProjectId
             : (requestedProjectId != null ? requestedProjectId : featureProjectId);
+        response.projectName = planLineProjectName != null
+            ? planLineProjectName
+            : featureProjectName;
 
         if (response.projectId == null) {
             throw handledException(
@@ -836,6 +895,146 @@ public with sharing class ProjectRecordMapController {
                 'The related Production Plan Line does not have a Service.'
             );
         }
+    }
+
+
+    private static void applyObjectSpecificWorkLogDefaults(
+        WorkLogLaunchResponse response,
+        String featureObjectApiName
+    ) {
+        if (response == null) {
+            return;
+        }
+
+        if (response.defaultValues == null) {
+            response.defaultValues = new Map<String, String>();
+        }
+
+        if (featureObjectApiName == SITE_OBJECT_API) {
+            String quantityFieldApiName = firstExistingFieldApiName(
+                WORK_LOG_OBJECT_API,
+                WORK_LOG_QUANTITY_FIELD_CANDIDATES
+            );
+            if (String.isNotBlank(quantityFieldApiName)) {
+                response.defaultValues.put(quantityFieldApiName, '1');
+            }
+        }
+
+        if (featureObjectApiName == SEGMENT_OBJECT_API &&
+            String.isNotBlank(response.segmentGeometryRaw)) {
+            response.defaultValues.put(WORK_LOG_GIS_PATH_FIELD, response.segmentGeometryRaw);
+        }
+    }
+
+    private static List<RecordDetailField> getRecordDetailFields(
+        Id recordId,
+        String objectApiName,
+        String fieldSetApiName,
+        List<String> warnings
+    ) {
+        if (recordId == null || String.isBlank(fieldSetApiName)) {
+            return new List<RecordDetailField>();
+        }
+
+        List<WorkLogFormField> readableFields = getReadableFieldSetFields(
+            objectApiName,
+            fieldSetApiName,
+            warnings
+        );
+        if (readableFields.isEmpty()) {
+            return new List<RecordDetailField>();
+        }
+
+        List<String> selectFields = new List<String>{ 'Id', 'Name' };
+        Set<String> seenFieldApiNames = new Set<String>{ 'Id', 'Name' };
+
+        for (WorkLogFormField readableField : readableFields) {
+            if (String.isBlank(readableField.apiName) ||
+                seenFieldApiNames.contains(readableField.apiName)) {
+                continue;
+            }
+
+            seenFieldApiNames.add(readableField.apiName);
+            selectFields.add(readableField.apiName);
+        }
+
+        String soql =
+            'SELECT ' + String.join(selectFields, ', ') +
+            ' FROM ' + objectApiName +
+            ' WHERE Id = :recordId' +
+            ' LIMIT 1';
+
+        SObject recordItem = Database.query(soql);
+        List<RecordDetailField> detailFields = new List<RecordDetailField>();
+
+        for (WorkLogFormField readableField : readableFields) {
+            RecordDetailField detailField = new RecordDetailField();
+            detailField.apiName = readableField.apiName;
+            detailField.label = readableField.label;
+            detailField.displayValue = toDisplayString(recordItem.get(readableField.apiName));
+            detailFields.add(detailField);
+        }
+
+        return detailFields;
+    }
+
+    private static List<WorkLogFormField> getReadableFieldSetFields(
+        String objectApiName,
+        String fieldSetApiName,
+        List<String> warnings
+    ) {
+        Schema.DescribeSObjectResult describeResult = getObjectDescribe(objectApiName);
+        Map<String, Schema.FieldSet> fieldSetMap = describeResult.fieldSets.getMap();
+
+        if (!fieldSetMap.containsKey(fieldSetApiName)) {
+            warnings.add(
+                'Field Set was not found on ' + objectApiName + ': ' + fieldSetApiName
+            );
+            return new List<WorkLogFormField>();
+        }
+
+        List<WorkLogFormField> formFields = new List<WorkLogFormField>();
+        Set<String> seenFieldApiNames = new Set<String>();
+        Map<String, Schema.SObjectField> fieldMap = describeResult.fields.getMap();
+
+        for (Schema.FieldSetMember member : fieldSetMap.get(fieldSetApiName).getFields()) {
+            String fieldApiName = normalizeString(member.getFieldPath());
+
+            if (String.isBlank(fieldApiName) || seenFieldApiNames.contains(fieldApiName)) {
+                continue;
+            }
+
+            if (fieldApiName.contains('.')) {
+                warnings.add(
+                    'Skipped field set entry "' + fieldApiName + '" because relationship paths are not supported in the summary display.'
+                );
+                continue;
+            }
+
+            if (!fieldMap.containsKey(fieldApiName)) {
+                warnings.add(
+                    'Skipped field set entry "' + fieldApiName + '" because the field was not found on ' + objectApiName + '.'
+                );
+                continue;
+            }
+
+            Schema.DescribeFieldResult fieldDescribe = fieldMap.get(fieldApiName).getDescribe();
+            if (!fieldDescribe.isAccessible()) {
+                warnings.add(
+                    'Skipped field "' + fieldDescribe.getLabel() + '" because it is not accessible.'
+                );
+                continue;
+            }
+
+            seenFieldApiNames.add(fieldApiName);
+
+            WorkLogFormField formField = new WorkLogFormField();
+            formField.apiName = fieldApiName;
+            formField.label = fieldDescribe.getLabel();
+            formFields.add(formField);
+        }
+
+        return formFields;
     }
 
     private static List<WorkLogFormField> getCreateableFieldSetFields(
@@ -894,6 +1093,28 @@ public with sharing class ProjectRecordMapController {
         }
 
         return formFields;
+    }
+
+
+    private static String firstExistingFieldApiName(
+        String objectApiName,
+        List<String> candidateFieldApiNames
+    ) {
+        if (String.isBlank(objectApiName) || candidateFieldApiNames == null ||
+            candidateFieldApiNames.isEmpty()) {
+            return null;
+        }
+
+        Map<String, Schema.SObjectField> fieldMap = getObjectDescribe(objectApiName).fields.getMap();
+
+        for (String candidateFieldApiName : candidateFieldApiNames) {
+            if (String.isNotBlank(candidateFieldApiName) &&
+                fieldMap.containsKey(candidateFieldApiName)) {
+                return candidateFieldApiName;
+            }
+        }
+
+        return null;
     }
 
     private static Boolean isSupportedWorkLogSourceObject(String objectApiName) {
