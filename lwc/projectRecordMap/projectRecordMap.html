@@ -129,13 +129,14 @@
                   </template>
 
                   <template if:true={layer.hasFilterControl}>
-                    <div class="filter-block">
+                    <div class="filter-block" data-filter-block="true">
                       <div class="filter-label">{layer.filterFieldLabel}</div>
 
                       <button
                         class="filter-trigger"
                         type="button"
                         data-slot={layer.slotNumber}
+                        data-filter-trigger="true"
                         onclick={handleToggleFilterMenu}
                       >
                         <span class="filter-trigger-text">{layer.selectedFilterLabel}</span>
@@ -143,13 +144,14 @@
                       </button>
 
                       <template if:true={layer.isFilterMenuOpen}>
-                        <div class="filter-menu">
+                        <div class="filter-menu" data-filter-menu="true">
                           <input
                             class="filter-search-input"
                             type="search"
                             placeholder="Search"
                             value={layer.filterSearchText}
                             data-slot={layer.slotNumber}
+                            data-filter-search="true"
                             oninput={handleFilterSearchInput}
                           />
 
@@ -164,6 +166,7 @@
                                 type="button"
                                 data-slot={layer.slotNumber}
                                 data-value={filterOption.value}
+                                data-filter-option="true"
                                 onclick={handleFilterOptionSelect}
                               >
                                 {filterOption.label}
@@ -316,13 +319,14 @@
                     </template>
 
                     <template if:true={layer.hasFilterControl}>
-                      <div class="filter-block">
+                      <div class="filter-block" data-filter-block="true">
                         <div class="filter-label">{layer.filterFieldLabel}</div>
 
                         <button
                           class="filter-trigger"
                           type="button"
                           data-slot={layer.slotNumber}
+                          data-filter-trigger="true"
                           onclick={handleToggleFilterMenu}
                         >
                           <span class="filter-trigger-text">{layer.selectedFilterLabel}</span>
@@ -330,13 +334,14 @@
                         </button>
 
                         <template if:true={layer.isFilterMenuOpen}>
-                          <div class="filter-menu">
+                          <div class="filter-menu" data-filter-menu="true">
                             <input
                               class="filter-search-input"
                               type="search"
                               placeholder="Search"
                               value={layer.filterSearchText}
                               data-slot={layer.slotNumber}
+                              data-filter-search="true"
                               oninput={handleFilterSearchInput}
                             />
 
@@ -351,6 +356,7 @@
                                   type="button"
                                   data-slot={layer.slotNumber}
                                   data-value={filterOption.value}
+                                  data-filter-option="true"
                                   onclick={handleFilterOptionSelect}
                                 >
                                   {filterOption.label}
