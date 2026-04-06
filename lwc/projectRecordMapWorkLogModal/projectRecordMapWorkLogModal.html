@@ -140,6 +140,49 @@
               </div>
             </template>
           </lightning-record-edit-form>
+
+          <div class="prm-work-log-upload-section">
+            <div class="prm-work-log-upload-heading">Files</div>
+            <div class="prm-work-log-upload-help">
+              Add files here before saving. When you create the Work Log, the selected files will be
+              uploaded and linked to the new Work Log and to the selected {workLogTargetTypeLabelLower}.
+            </div>
+
+            <lightning-input
+              type="file"
+              name="projectRecordMapPendingFiles"
+              label="Add files"
+              multiple
+              onchange={handlePendingFilesChange}
+              disabled={isSavingWorkLog}
+            ></lightning-input>
+
+            <template if:true={showPendingUploadFiles}>
+              <div class="prm-work-log-pending-file-list">
+                <template for:each={pendingUploadFiles} for:item="fileItem">
+                  <div key={fileItem.key} class="prm-work-log-pending-file-item">
+                    <div class="prm-work-log-pending-file-name">{fileItem.name}</div>
+                    <div class="prm-work-log-pending-file-meta">{fileItem.sizeLabel}</div>
+                  </div>
+                </template>
+              </div>
+            </template>
+
+            <template if:true={workLogUploadMessage}>
+              <div class="message message-info prm-work-log-inline-message">
+                <div>{workLogUploadMessage}</div>
+              </div>
+            </template>
+
+            <template if:true={isLinkingUploadedFiles}>
+              <div class="prm-work-log-spinner-wrap">
+                <lightning-spinner
+                  size="small"
+                  alternative-text="Uploading files"
+                ></lightning-spinner>
+              </div>
+            </template>
+          </div>
         </template>
 
         <template if:true={showWorkLogUploadStep}>
@@ -150,37 +193,20 @@
             </div>
           </template>
 
-          <div class="prm-work-log-upload-section">
-            <div class="prm-work-log-upload-heading">Upload files</div>
-            <div class="prm-work-log-upload-help">
-              Files uploaded here will be linked to the new Work Log and to the selected
-              {workLogTargetTypeLabelLower}.
+          <template if:true={workLogUploadMessage}>
+            <div class="message message-info prm-work-log-inline-message">
+              <div>{workLogUploadMessage}</div>
             </div>
+          </template>
 
-            <lightning-file-upload
-              name="projectRecordMapWorkLogUploader"
-              label="Add files"
-              record-id={createdWorkLogId}
-              multiple
-              onuploadfinished={handleWorkLogUploadFinished}
-              disabled={isLinkingUploadedFiles}
-            ></lightning-file-upload>
-
-            <template if:true={isLinkingUploadedFiles}>
-              <div class="prm-work-log-spinner-wrap">
-                <lightning-spinner
-                  size="small"
-                  alternative-text="Linking uploaded files"
-                ></lightning-spinner>
-              </div>
-            </template>
-
-            <template if:true={workLogUploadMessage}>
-              <div class="message message-info prm-work-log-inline-message">
-                <div>{workLogUploadMessage}</div>
-              </div>
-            </template>
-          </div>
+          <template if:true={isLinkingUploadedFiles}>
+            <div class="prm-work-log-spinner-wrap">
+              <lightning-spinner
+                size="small"
+                alternative-text="Uploading files"
+              ></lightning-spinner>
+            </div>
+          </template>
         </template>
       </div>
 
