@@ -8,6 +8,7 @@ public with sharing class ProjectRecordMapController {
     private static final String DEFAULT_WORK_LOG_FIELD_SET = 'sitetracker__Create_Work_Logs_Form_GIS';
     private static final String WORK_LOG_GIS_PATH_FIELD = 'sitetracker__st_GIS_Path__c';
     private static final String SEGMENT_GEOMETRY_FIELD_API = 'sitetracker__Gis_Segment_Path__c';
+    private static final String SEGMENT_TOTAL_LENGTH_FIELD_API = 'sitetracker__st_Total_Length__c';
     private static final String WORK_LOG_FALLBACK_LAT_FIELD = 'sitetracker__Location__Latitude__s';
     private static final String WORK_LOG_FALLBACK_LNG_FIELD = 'sitetracker__Location__Longitude__s';
     private static final List<String> WORK_LOG_QUANTITY_FIELD_CANDIDATES = new List<String>{
@@ -124,7 +125,6 @@ public with sharing class ProjectRecordMapController {
         @AuraEnabled public String displayValue { get; set; }
     }
 
-
     public class WorkLogLaunchResponse {
         @AuraEnabled public Id featureRecordId { get; set; }
         @AuraEnabled public String featureObjectApiName { get; set; }
@@ -146,6 +146,8 @@ public with sharing class ProjectRecordMapController {
         @AuraEnabled public Id activityId { get; set; }
         @AuraEnabled public Id siteId { get; set; }
         @AuraEnabled public Id segmentId { get; set; }
+        @AuraEnabled public String quantityFieldApiName { get; set; }
+        @AuraEnabled public Decimal segmentTotalLength { get; set; }
         @AuraEnabled public String segmentGeometryRaw { get; set; }
         @AuraEnabled public Map<String, String> defaultValues { get; set; }
         @AuraEnabled public List<RecordDetailField> targetDetailFields { get; set; }
@@ -162,6 +164,18 @@ public with sharing class ProjectRecordMapController {
     public class WorkLogFormField {
         @AuraEnabled public String apiName { get; set; }
         @AuraEnabled public String label { get; set; }
+    }
+
+    public class WorkLogFileUploadRequest {
+        @AuraEnabled public String fileName { get; set; }
+        @AuraEnabled public String base64Data { get; set; }
+    }
+
+    public class WorkLogFileUploadResult {
+        @AuraEnabled public String fileName { get; set; }
+        @AuraEnabled public Boolean success { get; set; }
+        @AuraEnabled public String message { get; set; }
+        @AuraEnabled public Id contentDocumentId { get; set; }
     }
 
     private class RequestedLayerSlot {
@@ -342,7 +356,8 @@ public with sharing class ProjectRecordMapController {
                     Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Item__r.Name,
                     Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Project__c,
                     Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Project__r.Name,
-                    sitetracker__Gis_Segment_Path__c
+                    sitetracker__Gis_Segment_Path__c,
+                    sitetracker__st_Total_Length__c
                 FROM sitetracker__Segment__c
                 WHERE Id = :featureRecordId
                 LIMIT 1
@@ -351,6 +366,7 @@ public with sharing class ProjectRecordMapController {
             response.featureName = segmentRecord.Name;
             response.segmentId = segmentRecord.Id;
             response.segmentGeometryRaw = segmentRecord.sitetracker__Gis_Segment_Path__c;
+            response.segmentTotalLength = segmentRecord.sitetracker__st_Total_Length__c;
             populateWorkLogDefaultsFromFeature(
                 response,
                 projectId,
@@ -417,6 +433,62 @@ public with sharing class ProjectRecordMapController {
         if (!linksToInsert.isEmpty()) {
             insert linksToInsert;
         }
+    }
+
+    @AuraEnabled
+    public static List<WorkLogFileUploadResult> uploadFilesToWorkLog(
+        List<WorkLogFileUploadRequest> uploadRequests,
+        Id workLogId
+    ) {
+        if (workLogId == null) {
+            throw handledException('Work Log Id is required for file upload.');
+        }
+
+        List<WorkLogFileUploadResult> results = new List<WorkLogFileUploadResult>();
+        if (uploadRequests == null || uploadRequests.isEmpty()) {
+            return results;
+        }
+
+        for (WorkLogFileUploadRequest uploadRequest : uploadRequests) {
+            WorkLogFileUploadResult result = new WorkLogFileUploadResult();
+            result.fileName = uploadRequest == null ? null : uploadRequest.fileName;
+            result.success = false;
+
+            try {
+                if (uploadRequest == null) {
+                    throw handledException('A file upload request was missing.');
+                }
+                if (String.isBlank(uploadRequest.fileName)) {
+                    throw handledException('File name is required.');
+                }
+                if (String.isBlank(uploadRequest.base64Data)) {
+                    throw handledException('File contents were empty for ' + uploadRequest.fileName + '.');
+                }
+
+                ContentVersion contentVersion = new ContentVersion();
+                contentVersion.Title = buildContentVersionTitle(uploadRequest.fileName);
+                contentVersion.PathOnClient = uploadRequest.fileName;
+                contentVersion.VersionData = EncodingUtil.base64Decode(uploadRequest.base64Data);
+                contentVersion.FirstPublishLocationId = workLogId;
+                insert contentVersion;
+
+                ContentVersion insertedVersion = [
+                    SELECT ContentDocumentId
+                    FROM ContentVersion
+                    WHERE Id = :contentVersion.Id
+                    LIMIT 1
+                ];
+
+                result.contentDocumentId = insertedVersion.ContentDocumentId;
+                result.success = true;
+            } catch (Exception ex) {
+                result.message = reduceException(ex);
+            }
+
+            results.add(result);
+        }
+
+        return results;
     }
 
     private static LayerSlotResponse processLayerSlot(
@@ -897,7 +969,6 @@ public with sharing class ProjectRecordMapController {
         }
     }
 
-
     private static void applyObjectSpecificWorkLogDefaults(
         WorkLogLaunchResponse response,
         String featureObjectApiName
@@ -910,13 +981,14 @@ public with sharing class ProjectRecordMapController {
             response.defaultValues = new Map<String, String>();
         }
 
+        response.quantityFieldApiName = firstExistingFieldApiName(
+            WORK_LOG_OBJECT_API,
+            WORK_LOG_QUANTITY_FIELD_CANDIDATES
+        );
+
         if (featureObjectApiName == SITE_OBJECT_API) {
-            String quantityFieldApiName = firstExistingFieldApiName(
-                WORK_LOG_OBJECT_API,
-                WORK_LOG_QUANTITY_FIELD_CANDIDATES
-            );
-            if (String.isNotBlank(quantityFieldApiName)) {
-                response.defaultValues.put(quantityFieldApiName, '1');
+            if (String.isNotBlank(response.quantityFieldApiName)) {
+                response.defaultValues.put(response.quantityFieldApiName, '1');
             }
         }
 
@@ -1094,7 +1166,6 @@ public with sharing class ProjectRecordMapController {
 
         return formFields;
     }
-
 
     private static String firstExistingFieldApiName(
         String objectApiName,
@@ -1428,6 +1499,18 @@ public with sharing class ProjectRecordMapController {
             return secondValue;
         }
         return thirdValue;
+    }
+
+    private static String buildContentVersionTitle(String fileName) {
+        String safeFileName = normalizeString(fileName);
+        if (String.isBlank(safeFileName)) {
+            return 'File';
+        }
+
+        Integer lastDotIndex = safeFileName.lastIndexOf('.');
+        return lastDotIndex > 0
+            ? safeFileName.substring(0, lastDotIndex)
+            : safeFileName;
     }
 
     private static AuraHandledException handledException(String message) {
