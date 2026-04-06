@@ -67,7 +67,6 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   boundTemplateClickHandler = null;
   isMapExpanded = false;
 
-
   renderedCallback() {
     this.ensurePopupActionListener();
     this.ensureBootstrapped();
@@ -102,8 +101,16 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     return this.hasLayerPanels && !this.isSidebarCollapsed && !this.isMapExpanded;
   }
 
+  get showSidePanelInPopout() {
+    return this.hasLayerPanels && !this.isSidebarCollapsed && this.isMapExpanded;
+  }
+
   get showCollapsedSidebarHandle() {
     return this.hasLayerPanels && this.isSidebarCollapsed && !this.isMapExpanded;
+  }
+
+  get showCollapsedSidebarHandleInPopout() {
+    return this.hasLayerPanels && this.isSidebarCollapsed && this.isMapExpanded;
   }
 
   get sidebarToggleIconName() {
@@ -112,14 +119,6 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
   get sidebarToggleTitle() {
     return this.isSidebarCollapsed ? "Show Layers" : "Hide Layers";
-  }
-
-  get mapPanelClass() {
-    return this.isMapExpanded ? "map-panel map-panel-expanded" : "map-panel";
-  }
-
-  get mapExpandTargetClass() {
-    return this.isMapExpanded ? "map-expand-target map-expand-target-expanded" : "map-expand-target";
   }
 
   get mapExpandButtonTitle() {
@@ -136,6 +135,12 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
   get contentGridClass() {
     return this.showSidePanel ? "content-grid" : "content-grid content-grid-collapsed";
+  }
+
+  get mapPopoutContentGridClass() {
+    return this.showSidePanelInPopout
+      ? "map-popout-content-grid"
+      : "map-popout-content-grid map-popout-content-grid-collapsed";
   }
 
   get showNoConfiguredLayers() {
@@ -188,9 +193,10 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   get contentSurfaceClass() {
-    return this.showInitialLoadingOverlay ? "content-surface content-surface-pending" : "content-surface";
+    return this.showInitialLoadingOverlay
+      ? "content-surface content-surface-pending"
+      : "content-surface";
   }
-
 
   ensurePopupActionListener() {
     if (this.popupActionListenerRegistered) {
@@ -250,8 +256,14 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     }
 
     this.map = window.L.map(mapContainer, {
-      zoomControl: true
+      zoomControl: false
     });
+
+    window.L.control
+      .zoom({
+        position: "bottomright"
+      })
+      .addTo(this.map);
 
     this.tileLayer = window.L
       .tileLayer(DEFAULT_TILE_URL, {
@@ -1113,7 +1125,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       .filter((point) => Array.isArray(point));
   }
 
-  buildFallbackRecordUrl(recordId, objectApiName) {
+  buildFallbackRecordUrl(recordId) {
     if (!recordId) {
       return "#";
     }
@@ -1171,7 +1183,8 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     const valuesWrapStyle = "display:flex;flex-direction:column;gap:0.38rem;";
     const valueStyle = "font-size:0.84rem;line-height:1.4;color:#181818;word-break:break-word;";
     const emptyStyle = "font-size:0.8rem;line-height:1.35;color:#5c5c5c;";
-    const footerStyle = "display:flex;justify-content:flex-end;padding-top:0.2rem;border-top:1px solid #eef1f6;";
+    const footerStyle =
+      "display:flex;justify-content:flex-end;padding-top:0.2rem;border-top:1px solid #eef1f6;";
     const actionButtonStyle = [
       "display:inline-flex",
       "align-items:center",
@@ -1243,7 +1256,6 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   formatPopupValue(popupValue) {
-
     const rawValue = popupValue?.displayValue ?? "";
     const dataType = this.normalizeString(popupValue?.dataType)?.toUpperCase();
 
@@ -1307,16 +1319,28 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     this.workLogLaunchContext = null;
   }
 
-  handleLayerVisibilityChange(event) {
-    const slotNumber = Number(event.target.dataset.slot);
-    const isVisible = event.target.checked;
-
+  setLayerVisibility(slotNumber, isVisible) {
     this.closeAllFilterMenus();
     this.uiLayers = this.uiLayers.map((layer) =>
       layer.slotNumber === slotNumber ? { ...layer, isVisible } : layer
     );
-
     this.renderVisibleFeatures({ fitToBounds: true });
+  }
+
+  handleLayerVisibilityChange(event) {
+    const slotNumber = Number(event.target.dataset.slot);
+    const isVisible = event.target.checked;
+    this.setLayerVisibility(slotNumber, isVisible);
+  }
+
+  handleLayerVisibilityToggle(event) {
+    const slotNumber = Number(event.currentTarget.dataset.slot);
+    const targetLayer = this.uiLayers.find((layer) => layer.slotNumber === slotNumber);
+    if (!targetLayer) {
+      return;
+    }
+
+    this.setLayerVisibility(slotNumber, !targetLayer.isVisible);
   }
 
   handleToggleFilterMenu(event) {
@@ -1421,6 +1445,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       return;
     }
 
+    this.closeAllFilterMenus();
     this.clearPendingViewportSync();
     this.destroyMap();
     this.isMapExpanded = nextExpandedState;
