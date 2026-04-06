@@ -3,6 +3,7 @@ import { ShowToastEvent } from "lightning/platformShowToastEvent";
 import { NavigationMixin } from "lightning/navigation";
 import getWorkLogLaunchConfig from "@salesforce/apex/ProjectRecordMapController.getWorkLogLaunchConfig";
 import linkUploadedFilesToRecord from "@salesforce/apex/ProjectRecordMapController.linkUploadedFilesToRecord";
+import uploadFilesToWorkLog from "@salesforce/apex/ProjectRecordMapController.uploadFilesToWorkLog";
 
 const WORK_LOG_OBJECT_API_NAME = "sitetracker__Production_Work_Log__c";
 const WORK_LOG_STATUS_FIELD = "sitetracker__Status__c";
@@ -20,9 +21,7 @@ const WORK_LOG_JOB_FIELD = "sitetracker__Job__c";
 const WORK_LOG_ACTIVITY_FIELD = "sitetracker__Activity__c";
 const WORK_LOG_ATTACHMENT_FIELD = "sitetracker__Attachment__c";
 const WORK_LOG_GIS_PATH_FIELD = "sitetracker__st_GIS_Path__c";
-
-const SALESFORCE_REST_API_VERSION = "v61.0";
-const CONTENT_VERSION_SOBJECT_URL = `/services/data/${SALESFORCE_REST_API_VERSION}/sobjects/ContentVersion`;
+const SELECTION_MODE_FULL = "full";
 
 const AUTO_HIDDEN_WORK_LOG_FIELDS = new Set([
   WORK_LOG_PROJECT_FIELD,
@@ -95,7 +94,9 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
   }
 
   get isSegmentTarget() {
-    return this.normalizeString(this.targetObjectApiName)?.toLowerCase() === "sitetracker__segment__c";
+    return (
+      this.normalizeString(this.targetObjectApiName)?.toLowerCase() === "sitetracker__segment__c"
+    );
   }
 
   get targetDetailFieldSetApiName() {
@@ -167,7 +168,7 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
   }
 
   get showTargetDetailFields() {
-    return this.targetDetailFields.length > 0;
+    return this.showWorkLogForm && this.targetDetailFields.length > 0;
   }
 
   get segmentGeometryRaw() {
@@ -184,6 +185,14 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
 
   get showPendingUploadFiles() {
     return Array.isArray(this.pendingUploadFiles) && this.pendingUploadFiles.length > 0;
+  }
+
+  get quantityFieldApiName() {
+    return this.normalizeString(this.workLogContext?.quantityFieldApiName);
+  }
+
+  get segmentTotalLength() {
+    return this.workLogContext?.segmentTotalLength;
   }
 
   async loadWorkLogContext() {
@@ -257,7 +266,7 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
     this.segmentPathValue = initialSegmentPathValue;
     this.segmentPathValid =
       !this.isSegmentTarget || !this.segmentGeometryRaw || Boolean(initialSegmentPathValue);
-    this.segmentSelectionMode = initialSegmentPathValue ? "full" : "";
+    this.segmentSelectionMode = initialSegmentPathValue ? SELECTION_MODE_FULL : "";
   }
 
   normalizeWorkLogDefaultValues(defaultValues, context = {}) {
@@ -376,7 +385,27 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
     this.segmentPathValue = detail.pathValue || "";
     this.segmentPathValid = Boolean(detail.isValid);
     this.segmentSelectionMode = detail.selectionMode ?? this.segmentSelectionMode;
-    this.upsertHiddenFieldValue(WORK_LOG_GIS_PATH_FIELD, this.segmentPathValue || null);
+
+    this.upsertFieldValue(WORK_LOG_GIS_PATH_FIELD, this.segmentPathValue || null);
+
+    if (this.segmentSelectionMode === SELECTION_MODE_FULL) {
+      this.applyFullSegmentQuantity();
+    }
+  }
+
+  applyFullSegmentQuantity() {
+    const quantityFieldApiName = this.quantityFieldApiName;
+    const segmentTotalLength = this.segmentTotalLength;
+
+    if (!quantityFieldApiName) {
+      return;
+    }
+
+    if (segmentTotalLength === null || segmentTotalLength === undefined || segmentTotalLength === "") {
+      return;
+    }
+
+    this.upsertFieldValue(quantityFieldApiName, String(segmentTotalLength));
   }
 
   handlePendingFilesChange(event) {
@@ -389,16 +418,10 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
       sizeLabel: this.formatFileSize(fileItem.size)
     }));
 
-    if (selectedFiles.length) {
-      this.workLogUploadMessage = `${selectedFiles.length} file${
-        selectedFiles.length === 1 ? "" : "s"
-      } selected. They will upload automatically when the Work Log is created.`;
-    } else {
-      this.workLogUploadMessage = "";
-    }
+    this.workLogUploadMessage = "";
   }
 
-  upsertHiddenFieldValue(apiName, value) {
+  upsertFieldValue(apiName, value) {
     if (!apiName) {
       return;
     }
@@ -495,9 +518,8 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
     this.dispatchToast("Work Log Created", "The Work Log was created successfully.", "success");
 
     if (this.pendingUploadFileBlobs.length) {
-      this.workLogSuccessMessage = `The Work Log was created. Uploading ${this.pendingUploadFileBlobs.length} selected file${
-        this.pendingUploadFileBlobs.length === 1 ? "" : "s"
-      }...`;
+      this.workLogSuccessMessage = "The Work Log was created.";
+      this.workLogUploadMessage = "Uploading selected files...";
       await this.uploadPendingFilesForCreatedWorkLog();
       return;
     }
@@ -525,22 +547,51 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
     this.workLogUploadMessage = "Uploading selected files...";
 
     try {
+      const uploadRequests = [];
+
       for (const fileItem of this.pendingUploadFileBlobs) {
         try {
-          const contentDocumentId = await this.uploadSingleFileToWorkLog(fileItem);
-          if (contentDocumentId) {
-            contentDocumentIds.push(contentDocumentId);
-          }
-
-          uploadResults.push({
-            name: fileItem.name,
-            ok: true
+          const base64Data = await this.readFileAsBase64(fileItem);
+          uploadRequests.push({
+            fileName: fileItem.name,
+            base64Data
           });
         } catch (error) {
           uploadResults.push({
             name: fileItem.name,
             ok: false,
             message: this.reduceError(error)
+          });
+        }
+      }
+
+      if (uploadRequests.length) {
+        try {
+          const apexResults = await uploadFilesToWorkLog({
+            uploadRequests,
+            workLogId: this.createdWorkLogId
+          });
+
+          (Array.isArray(apexResults) ? apexResults : []).forEach((result) => {
+            const success = Boolean(result?.success);
+            if (success && result?.contentDocumentId) {
+              contentDocumentIds.push(result.contentDocumentId);
+            }
+
+            uploadResults.push({
+              name: result?.fileName || "File",
+              ok: success,
+              message: result?.message || ""
+            });
+          });
+        } catch (error) {
+          const message = this.reduceError(error);
+          uploadRequests.forEach((requestItem) => {
+            uploadResults.push({
+              name: requestItem.fileName,
+              ok: false,
+              message
+            });
           });
         }
       }
@@ -589,7 +640,9 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
           );
         }
 
-        this.workLogUploadMessage = messageParts.join(". ") + ".";
+        this.workLogUploadMessage = messageParts.length
+          ? `${messageParts.join(". ")}.`
+          : "One or more files could not be uploaded.";
         this.dispatchToast("File Upload Issue", this.workLogUploadMessage, "error");
       }
 
@@ -599,67 +652,6 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
     } finally {
       this.isLinkingUploadedFiles = false;
     }
-  }
-
-  async uploadSingleFileToWorkLog(fileItem) {
-    const versionData = await this.readFileAsBase64(fileItem);
-    const requestBody = {
-      Title: this.buildContentVersionTitle(fileItem.name),
-      PathOnClient: fileItem.name,
-      VersionData: versionData,
-      FirstPublishLocationId: this.createdWorkLogId
-    };
-
-    const createResponse = await fetch(CONTENT_VERSION_SOBJECT_URL, {
-      method: "POST",
-      headers: {
-        Accept: "application/json",
-        "Content-Type": "application/json"
-      },
-      credentials: "same-origin",
-      body: JSON.stringify(requestBody)
-    });
-
-    const createPayload = await createResponse.json().catch(() => null);
-    if (!createResponse.ok) {
-      throw new Error(
-        this.reduceRestError(createPayload) || `Unable to upload ${fileItem.name}.`
-      );
-    }
-
-    const contentVersionId = createPayload?.id;
-    if (!contentVersionId) {
-      throw new Error(`The upload for ${fileItem.name} completed without returning a ContentVersion Id.`);
-    }
-
-    return this.fetchContentDocumentId(contentVersionId, fileItem.name);
-  }
-
-  async fetchContentDocumentId(contentVersionId, fileName) {
-    const response = await fetch(
-      `${CONTENT_VERSION_SOBJECT_URL}/${encodeURIComponent(contentVersionId)}?fields=ContentDocumentId`,
-      {
-        method: "GET",
-        headers: {
-          Accept: "application/json"
-        },
-        credentials: "same-origin"
-      }
-    );
-
-    const payload = await response.json().catch(() => null);
-    if (!response.ok) {
-      throw new Error(
-        this.reduceRestError(payload) || `Unable to finish linking ${fileName}.`
-      );
-    }
-
-    const contentDocumentId = payload?.ContentDocumentId;
-    if (!contentDocumentId) {
-      throw new Error(`The uploaded file ${fileName} did not return a ContentDocument Id.`);
-    }
-
-    return contentDocumentId;
   }
 
   readFileAsBase64(fileItem) {
@@ -685,12 +677,6 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
 
       reader.readAsDataURL(fileItem);
     });
-  }
-
-  buildContentVersionTitle(fileName) {
-    const safeFileName = this.normalizeString(fileName) || "File";
-    const lastDotIndex = safeFileName.lastIndexOf(".");
-    return lastDotIndex > 0 ? safeFileName.slice(0, lastDotIndex) : safeFileName;
   }
 
   formatFileSize(sizeInBytes) {
@@ -830,33 +816,6 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
 
     if (typeof detail.message === "string") {
       return detail.message;
-    }
-
-    return "";
-  }
-
-  reduceRestError(payload) {
-    if (!payload) {
-      return "";
-    }
-
-    if (Array.isArray(payload)) {
-      return payload
-        .map((item) => item?.message || item?.errorCode)
-        .filter((message) => Boolean(message))
-        .join("; ");
-    }
-
-    if (typeof payload?.message === "string") {
-      return payload.message;
-    }
-
-    if (typeof payload?.error_description === "string") {
-      return payload.error_description;
-    }
-
-    if (typeof payload?.error === "string") {
-      return payload.error;
     }
 
     return "";
