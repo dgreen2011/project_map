@@ -74,18 +74,18 @@
           </div>
         </template>
 
-        <template if:true={showTargetDetailFields}>
-          <div class="prm-work-log-target-detail-grid">
-            <template for:each={targetDetailFields} for:item="fieldItem">
-              <div key={fieldItem.apiName} class="prm-work-log-target-detail-item">
-                <div class="prm-work-log-target-detail-label">{fieldItem.label}</div>
-                <div class="prm-work-log-target-detail-value">{fieldItem.displayValue}</div>
-              </div>
-            </template>
-          </div>
-        </template>
-
         <template if:true={showWorkLogForm}>
+          <template if:true={showTargetDetailFields}>
+            <div class="prm-work-log-target-detail-grid">
+              <template for:each={targetDetailFields} for:item="fieldItem">
+                <div key={fieldItem.apiName} class="prm-work-log-target-detail-item">
+                  <div class="prm-work-log-target-detail-label">{fieldItem.label}</div>
+                  <div class="prm-work-log-target-detail-value">{fieldItem.displayValue}</div>
+                </div>
+              </template>
+            </div>
+          </template>
+
           <template if:true={workLogSaveError}>
             <div class="message message-error prm-work-log-inline-message">
               <div class="message-title">Save Error</div>
@@ -143,10 +143,6 @@
 
           <div class="prm-work-log-upload-section">
             <div class="prm-work-log-upload-heading">Files</div>
-            <div class="prm-work-log-upload-help">
-              Add files here before saving. When you create the Work Log, the selected files will be
-              uploaded and linked to the new Work Log and to the selected {workLogTargetTypeLabelLower}.
-            </div>
 
             <lightning-input
               type="file"
