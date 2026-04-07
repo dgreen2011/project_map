@@ -92,6 +92,9 @@
   grid-template-columns: minmax(9.25rem, 11.5rem) minmax(0, 1fr);
   gap: 0.75rem;
   align-items: start;
+  transition:
+    grid-template-columns 160ms ease,
+    gap 160ms ease;
 }
 
 .content-grid-collapsed {
@@ -372,6 +375,11 @@
   gap: 0.45rem;
 }
 
+.map-overlay-actions-popout {
+  top: 0.7rem;
+  right: 0.7rem;
+}
+
 .map-expand-button {
   display: inline-flex;
   align-items: center;
@@ -398,6 +406,25 @@
   color: #0176d3;
   outline: none;
   box-shadow: 0 0 0 2px rgb(1 118 211 / 16%);
+}
+
+.map-expand-button:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 6%);
+}
+
+.map-expand-button:disabled:hover,
+.map-expand-button:disabled:focus {
+  border-color: #d8dde6;
+  background: rgb(255 255 255 / 96%);
+  color: #2f3e5c;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 6%);
+  outline: none;
+}
+
+.map-lasso-button {
+  font-weight: 700;
 }
 
 .map-expand-button-icon {
@@ -430,6 +457,37 @@
   width: 100%;
   min-height: 18rem;
   background: #eef4fb;
+}
+
+.map-root.lasso-mode-active,
+.map-root.lasso-mode-active.leaflet-container {
+  cursor: crosshair !important;
+}
+
+.map-root.lasso-mode-active .leaflet-container {
+  cursor: crosshair !important;
+}
+
+.map-root.lasso-mode-active .leaflet-overlay-pane,
+.map-root.lasso-mode-active .leaflet-marker-pane,
+.map-root.lasso-mode-active .leaflet-shadow-pane,
+.map-root.lasso-mode-active .leaflet-popup-pane,
+.map-root.lasso-mode-active .leaflet-interactive {
+  pointer-events: none !important;
+}
+
+.map-root.lasso-mode-active .leaflet-control-container,
+.map-root.lasso-mode-active .leaflet-control,
+.map-root.lasso-mode-active .leaflet-control a,
+.map-root.lasso-mode-active .leaflet-bar,
+.map-root.lasso-mode-active .leaflet-bar a,
+.map-root.lasso-mode-active .leaflet-pane.leaflet-tile-pane {
+  pointer-events: auto !important;
+}
+
+.map-root.lasso-mode-active .leaflet-control a,
+.map-root.lasso-mode-active .leaflet-bar a {
+  cursor: pointer !important;
 }
 
 .map-frame-popout .map-root,
@@ -521,6 +579,9 @@
   align-items: stretch;
   height: 100%;
   min-height: 0;
+  transition:
+    grid-template-columns 160ms ease,
+    gap 160ms ease;
 }
 
 .map-popout-content-grid-collapsed {
@@ -573,7 +634,8 @@
 }
 
 /* Keep the map under the Lightning page chrome/tabs */
-.map-root .leaflet-container {
+.map-root .leaflet-container,
+.map-root.leaflet-container {
   z-index: 0 !important;
 }
 
