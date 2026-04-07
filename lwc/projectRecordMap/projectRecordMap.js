@@ -15,6 +15,15 @@ const DEFAULT_POINT_COLOR = "#2f80ed";
 const DEFAULT_LINE_COLOR = "#0b8f86";
 const DEFAULT_POLYGON_COLOR = "#5779c1";
 
+const SITE_OBJECT_API_NAME = "sitetracker__site__c";
+const SEGMENT_OBJECT_API_NAME = "sitetracker__segment__c";
+
+const LASSO_CLOSE_DISTANCE_PX = 18;
+const LASSO_STROKE_COLOR = "#0176d3";
+const LASSO_FILL_COLOR = "#0176d3";
+const SELECTION_HIGHLIGHT_COLOR = "#ff9f1c";
+const GEOMETRY_EPSILON = 1e-10;
+
 export default class ProjectRecordMap extends NavigationMixin(LightningElement) {
   @api recordId;
   @api mapHeightPx = 520;
@@ -45,6 +54,13 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   map = null;
   tileLayer = null;
   renderedFeatureGroup = null;
+  selectionHighlightGroup = null;
+
+  lassoDraftPolyline = null;
+  lassoDraftPolygon = null;
+  lassoGuidePolyline = null;
+  lassoStartMarker = null;
+  lassoDraftLatLngs = [];
 
   librariesReady = false;
   mapReady = false;
@@ -61,11 +77,19 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   isWorkLogModalOpen = false;
   workLogLaunchContext = null;
 
+  isBulkWorkLogModalOpen = false;
+  selectedLassoFeatures = [];
+  isLassoMode = false;
+
   uiLayers = [];
 
   popupActionListenerRegistered = false;
   boundTemplateClickHandler = null;
   isMapExpanded = false;
+
+  boundLeafletMapClickHandler = null;
+  boundLeafletMapDoubleClickHandler = null;
+  boundLeafletMapMouseMoveHandler = null;
 
   renderedCallback() {
     this.ensurePopupActionListener();
@@ -129,6 +153,20 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     return this.isMapExpanded ? "×" : "⛶";
   }
 
+  get lassoButtonTitle() {
+    return this.isLassoMode
+      ? "Cancel lasso selection"
+      : "Lasso select Sites and Segments";
+  }
+
+  get lassoButtonIcon() {
+    return this.isLassoMode ? "×" : "◌";
+  }
+
+  get isLassoButtonDisabled() {
+    return !this.mapReady || this.isLoading || !this.hasLayerPanels;
+  }
+
   get showInlineMapPanel() {
     return !this.isMapExpanded;
   }
@@ -182,6 +220,10 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
   get workLogModalFeatureName() {
     return this.workLogLaunchContext?.featureName || "";
+  }
+
+  get bulkWorkLogSelections() {
+    return this.selectedLassoFeatures.map((feature) => ({ ...feature }));
   }
 
   get showInitialLoadingOverlay() {
@@ -281,12 +323,56 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       this.tileWarningMessage = "";
     });
 
+    this.registerLeafletMapListeners();
     this.map.setView(DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM);
     this.mapReady = true;
+    this.syncLassoInteractionState();
     this.scheduleMapViewportSync({ fitToBounds: false });
   }
 
+  registerLeafletMapListeners() {
+    if (!this.map) {
+      return;
+    }
+
+    if (!this.boundLeafletMapClickHandler) {
+      this.boundLeafletMapClickHandler = this.handleLeafletMapClick.bind(this);
+    }
+    if (!this.boundLeafletMapDoubleClickHandler) {
+      this.boundLeafletMapDoubleClickHandler = this.handleLeafletMapDoubleClick.bind(this);
+    }
+    if (!this.boundLeafletMapMouseMoveHandler) {
+      this.boundLeafletMapMouseMoveHandler = this.handleLeafletMapMouseMove.bind(this);
+    }
+
+    this.map.on("click", this.boundLeafletMapClickHandler);
+    this.map.on("dblclick", this.boundLeafletMapDoubleClickHandler);
+    this.map.on("mousemove", this.boundLeafletMapMouseMoveHandler);
+  }
+
+  unregisterLeafletMapListeners() {
+    if (!this.map) {
+      return;
+    }
+
+    if (this.boundLeafletMapClickHandler) {
+      this.map.off("click", this.boundLeafletMapClickHandler);
+    }
+    if (this.boundLeafletMapDoubleClickHandler) {
+      this.map.off("dblclick", this.boundLeafletMapDoubleClickHandler);
+    }
+    if (this.boundLeafletMapMouseMoveHandler) {
+      this.map.off("mousemove", this.boundLeafletMapMouseMoveHandler);
+    }
+  }
+
   destroyMap() {
+    this.unregisterLeafletMapListeners();
+    this.clearLassoDraftLayers();
+    this.clearSelectionHighlightLayers();
+    this.setMapContainerLassoState(false);
+    this.isLassoMode = false;
+
     if (this.map) {
       try {
         this.map.remove();
@@ -362,6 +448,11 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       return;
     }
 
+    this.cancelLassoMode({
+      clearSelection: true,
+      closeBulkModal: true
+    });
+
     if (!this.hasConfiguredLayers) {
       this.errorMessage = "";
       this.uiLayers = [];
@@ -390,6 +481,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       this.errorMessage = this.reduceError(error);
       this.uiLayers = [];
       this.clearRenderedFeatures();
+      this.clearSelectedFeatures();
       this.resetMapView();
       this.scheduleMapViewportSync({ fitToBounds: false });
       this.markInitialLoadComplete();
@@ -433,6 +525,8 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       normalizedLayer.visibleFeatureCount = this.getFilteredFeatures(normalizedLayer).length;
       return normalizedLayer;
     });
+
+    this.reconcileSelectedLassoFeatures();
   }
 
   normalizeLayerResponse(layer) {
@@ -578,6 +672,36 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     return layer.features.filter((feature) => feature.filterValue === layer.selectedFilterValue);
   }
 
+  getSelectableVisibleFeatures() {
+    const visibleSelectableFeatures = [];
+
+    this.uiLayers.forEach((layer) => {
+      if (!layer || layer.hasError || !layer.isVisible) {
+        return;
+      }
+
+      this.getFilteredFeatures(layer).forEach((feature) => {
+        if (this.isSelectableFeature(layer, feature)) {
+          visibleSelectableFeatures.push({ layer, feature });
+        }
+      });
+    });
+
+    return visibleSelectableFeatures;
+  }
+
+  isSelectableFeature(layer, feature) {
+    const normalizedObjectApiName = this.normalizeString(
+      feature?.targetObjectApiName || layer?.objectApiName || ""
+    )?.toLowerCase();
+
+    return (
+      Boolean(feature?.recordId) &&
+      (normalizedObjectApiName === SITE_OBJECT_API_NAME ||
+        normalizedObjectApiName === SEGMENT_OBJECT_API_NAME)
+    );
+  }
+
   closeAllFilterMenus() {
     this.uiLayers = this.uiLayers.map((layer) =>
       this.applyFilterMenuState(
@@ -632,11 +756,124 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     });
 
     this.renderedFeatureGroup = featureGroup.addTo(this.map);
+    this.renderSelectionHighlights();
+    this.syncLassoDraftLayers();
 
     this.scheduleMapViewportSync({
       fitToBounds,
       fallbackToDefault: !hasAnyRenderedFeature
     });
+  }
+
+  renderSelectionHighlights() {
+    this.clearSelectionHighlightLayers();
+
+    if (!this.mapReady || !window.L || !Array.isArray(this.selectedLassoFeatures)) {
+      return;
+    }
+
+    if (!this.selectedLassoFeatures.length) {
+      return;
+    }
+
+    const highlightGroup = window.L.featureGroup();
+
+    this.selectedLassoFeatures.forEach((feature) => {
+      const highlightLayer = this.createSelectionHighlightLayer(feature);
+      if (highlightLayer) {
+        highlightGroup.addLayer(highlightLayer);
+      }
+    });
+
+    if (highlightGroup.getLayers().length) {
+      this.selectionHighlightGroup = highlightGroup.addTo(this.map);
+    }
+  }
+
+  clearSelectionHighlightLayers() {
+    if (this.map && this.selectionHighlightGroup) {
+      this.map.removeLayer(this.selectionHighlightGroup);
+    }
+
+    this.selectionHighlightGroup = null;
+  }
+
+  createSelectionHighlightLayer(feature) {
+    if (!window.L || !feature) {
+      return null;
+    }
+
+    if (feature.geometryType === "point") {
+      return this.createSelectionPointLayer(feature);
+    }
+
+    if (feature.geometryType === "polyline") {
+      return this.createSelectionPolylineLayer(feature);
+    }
+
+    return null;
+  }
+
+  createSelectionPointLayer(feature) {
+    const latitude = this.toNumber(feature?.latitude);
+    const longitude = this.toNumber(feature?.longitude);
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return null;
+    }
+
+    return window.L.circleMarker([latitude, longitude], {
+      radius: 8,
+      color: "#ffffff",
+      weight: 3,
+      opacity: 1,
+      fillColor: SELECTION_HIGHLIGHT_COLOR,
+      fillOpacity: 0.95
+    });
+  }
+
+  createSelectionPolylineLayer(feature) {
+    const coordinateSets = this.extractPolylineCoordinateSets(feature?.geometryRaw);
+    if (!coordinateSets.length) {
+      return null;
+    }
+
+    const renderedLayers = [];
+
+    coordinateSets.forEach((coordinateSet) => {
+      const latLngs = this.toLatLngs(coordinateSet);
+      if (latLngs.length < 2) {
+        return;
+      }
+
+      renderedLayers.push(
+        window.L.polyline(latLngs, {
+          color: "#ffffff",
+          weight: 8,
+          opacity: 0.95,
+          lineCap: "round",
+          lineJoin: "round"
+        })
+      );
+
+      renderedLayers.push(
+        window.L.polyline(latLngs, {
+          color: SELECTION_HIGHLIGHT_COLOR,
+          weight: 5,
+          opacity: 1,
+          lineCap: "round",
+          lineJoin: "round"
+        })
+      );
+    });
+
+    if (!renderedLayers.length) {
+      return null;
+    }
+
+    return renderedLayers.length === 1
+      ? renderedLayers[0]
+      : window.L.featureGroup(renderedLayers);
   }
 
   fitMapToFeatureGroup(featureGroup) {
@@ -663,6 +900,42 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     this.map.setView(DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM);
   }
 
+  captureMapViewState() {
+    if (!this.map) {
+      return null;
+    }
+
+    try {
+      const center = this.map.getCenter();
+      const zoom = this.map.getZoom();
+
+      if (!center || !Number.isFinite(zoom)) {
+        return null;
+      }
+
+      return {
+        center: [center.lat, center.lng],
+        zoom
+      };
+    } catch (error) {
+      return null;
+    }
+  }
+
+  restoreMapViewState(viewState) {
+    if (!this.map || !viewState?.center || !Number.isFinite(viewState?.zoom)) {
+      return;
+    }
+
+    try {
+      this.map.setView(viewState.center, viewState.zoom, {
+        animate: false
+      });
+    } catch (error) {
+      // swallow restore errors
+    }
+  }
+
   clearPendingViewportSync() {
     if (this.pendingViewportSyncTimer) {
       window.clearTimeout(this.pendingViewportSyncTimer);
@@ -670,7 +943,12 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     }
   }
 
-  scheduleMapViewportSync({ fitToBounds = false, fallbackToDefault = false } = {}) {
+  scheduleMapViewportSync({
+    fitToBounds = false,
+    fallbackToDefault = false,
+    preserveView = false,
+    viewState = null
+  } = {}) {
     if (!this.map) {
       return;
     }
@@ -690,6 +968,10 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
           });
         } catch (error) {
           this.map.invalidateSize(false);
+        }
+
+        if (preserveView && viewState) {
+          this.restoreMapViewState(viewState);
         }
 
         if (!fitToBounds) {
@@ -1136,12 +1418,9 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   shouldShowWorkLogAction(layer, feature) {
     const objectApiName = this.normalizeString(
       feature?.targetObjectApiName || layer?.objectApiName || ""
-    );
-    const lowerObjectName = objectApiName.toLowerCase();
-    const isSupportedObject =
-      lowerObjectName === "sitetracker__site__c" || lowerObjectName === "sitetracker__segment__c";
+    )?.toLowerCase();
 
-    if (!isSupportedObject) {
+    if (objectApiName !== SITE_OBJECT_API_NAME && objectApiName !== SEGMENT_OBJECT_API_NAME) {
       return false;
     }
 
@@ -1319,7 +1598,23 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     this.workLogLaunchContext = null;
   }
 
+  handleBulkWorkLogModalClose() {
+    this.isBulkWorkLogModalOpen = false;
+    this.clearSelectedFeatures();
+  }
+
+  handleBulkWorkLogCreated() {
+    this.isBulkWorkLogModalOpen = false;
+    this.clearSelectedFeatures();
+    this.lastRequestSignature = null;
+    this.loadProjectMapData();
+  }
+
   setLayerVisibility(slotNumber, isVisible) {
+    this.cancelLassoMode({
+      clearSelection: true,
+      closeBulkModal: true
+    });
     this.closeAllFilterMenus();
     this.uiLayers = this.uiLayers.map((layer) =>
       layer.slotNumber === slotNumber ? { ...layer, isVisible } : layer
@@ -1387,6 +1682,11 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     const slotNumber = Number(event.currentTarget.dataset.slot);
     const selectedFilterValue = event.currentTarget.dataset.value;
 
+    this.cancelLassoMode({
+      clearSelection: true,
+      closeBulkModal: true
+    });
+
     this.uiLayers = this.uiLayers.map((layer) => {
       if (layer.slotNumber !== slotNumber) {
         return this.applyFilterMenuState(
@@ -1419,17 +1719,613 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
   handleToggleSidebar() {
     this.closeAllFilterMenus();
+
+    const viewState = this.captureMapViewState();
     this.isSidebarCollapsed = !this.isSidebarCollapsed;
+
     this.scheduleMapViewportSync({
-      fitToBounds: true,
-      fallbackToDefault: true
+      preserveView: true,
+      viewState
     });
   }
 
   handleRefreshClick() {
+    this.cancelLassoMode({
+      clearSelection: true,
+      closeBulkModal: true
+    });
     this.closeAllFilterMenus();
     this.lastRequestSignature = null;
     this.loadProjectMapData();
+  }
+
+  handleToggleLassoMode() {
+    if (this.isLassoButtonDisabled) {
+      return;
+    }
+
+    if (this.isLassoMode) {
+      this.cancelLassoMode();
+      return;
+    }
+
+    this.clearSelectedFeatures();
+    this.isBulkWorkLogModalOpen = false;
+    this.isLassoMode = true;
+    this.lassoDraftLatLngs = [];
+    this.clearLassoDraftLayers();
+    this.closeAllFilterMenus();
+
+    if (this.map) {
+      this.map.closePopup();
+    }
+
+    this.syncLassoInteractionState();
+    this.dispatchToast(
+      "Lasso Selection",
+      "Click around the Sites and Segments you want. Double-click, or click back near the starting point, to close the lasso.",
+      "info"
+    );
+  }
+
+  cancelLassoMode({ clearSelection = false, closeBulkModal = false } = {}) {
+    this.isLassoMode = false;
+    this.clearLassoDraftLayers();
+    this.syncLassoInteractionState();
+
+    if (clearSelection) {
+      this.clearSelectedFeatures();
+    }
+
+    if (closeBulkModal) {
+      this.isBulkWorkLogModalOpen = false;
+    }
+  }
+
+  clearSelectedFeatures() {
+    this.selectedLassoFeatures = [];
+    this.clearSelectionHighlightLayers();
+  }
+
+  handleLeafletMapClick(event) {
+    if (!this.isLassoMode || !this.map || !event?.latlng) {
+      return;
+    }
+
+    this.map.closePopup();
+
+    const nextPoint = [event.latlng.lat, event.latlng.lng];
+
+    if (this.lassoDraftLatLngs.length >= 3 && this.isNearFirstLassoVertex(nextPoint)) {
+      this.completeLassoSelection();
+      return;
+    }
+
+    this.lassoDraftLatLngs = [...this.lassoDraftLatLngs, nextPoint];
+    this.syncLassoDraftLayers();
+  }
+
+  handleLeafletMapDoubleClick(event) {
+    if (!this.isLassoMode) {
+      return;
+    }
+
+    event?.originalEvent?.preventDefault?.();
+    event?.originalEvent?.stopPropagation?.();
+
+    if (this.lassoDraftLatLngs.length < 3) {
+      this.dispatchToast(
+        "Lasso Selection",
+        "Add at least 3 points before closing the lasso.",
+        "warning"
+      );
+      return;
+    }
+
+    this.completeLassoSelection();
+  }
+
+  handleLeafletMapMouseMove(event) {
+    if (!this.isLassoMode || !this.map || !event?.latlng || !this.lassoDraftLatLngs.length) {
+      this.clearLassoGuideLayer();
+      return;
+    }
+
+    const lastPoint = this.lassoDraftLatLngs[this.lassoDraftLatLngs.length - 1];
+    const guideLatLngs = [lastPoint, [event.latlng.lat, event.latlng.lng]];
+
+    if (!this.lassoGuidePolyline) {
+      this.lassoGuidePolyline = window.L.polyline(guideLatLngs, {
+        color: LASSO_STROKE_COLOR,
+        weight: 1.5,
+        opacity: 0.7,
+        dashArray: "4 6",
+        lineCap: "round",
+        lineJoin: "round",
+        interactive: false
+      }).addTo(this.map);
+      return;
+    }
+
+    this.lassoGuidePolyline.setLatLngs(guideLatLngs);
+  }
+
+  completeLassoSelection() {
+    if (this.lassoDraftLatLngs.length < 3) {
+      this.dispatchToast(
+        "Lasso Selection",
+        "Add at least 3 points before closing the lasso.",
+        "warning"
+      );
+      return;
+    }
+
+    const closedPolygon = this.ensureClosedPolygonLatLngs(this.lassoDraftLatLngs);
+    const selectedFeatures = this.selectFeaturesWithinLasso(closedPolygon);
+
+    this.isLassoMode = false;
+    this.clearLassoDraftLayers();
+    this.syncLassoInteractionState();
+
+    if (!selectedFeatures.length) {
+      this.clearSelectedFeatures();
+      this.dispatchToast(
+        "Lasso Selection",
+        "No visible Sites or Segments were found inside the lasso.",
+        "info"
+      );
+      return;
+    }
+
+    this.selectedLassoFeatures = selectedFeatures;
+    this.renderSelectionHighlights();
+    this.isBulkWorkLogModalOpen = true;
+  }
+
+  syncLassoInteractionState() {
+    if (this.map?.doubleClickZoom) {
+      if (this.isLassoMode) {
+        this.map.doubleClickZoom.disable();
+      } else {
+        this.map.doubleClickZoom.enable();
+      }
+    }
+
+    this.setMapContainerLassoState(this.isLassoMode);
+  }
+
+  setMapContainerLassoState(isActive) {
+    const mapContainer = this.template.querySelector('[data-id="map"]');
+    if (!mapContainer) {
+      return;
+    }
+
+    mapContainer.classList.toggle("lasso-mode-active", Boolean(isActive));
+  }
+
+  syncLassoDraftLayers() {
+    if (!this.isLassoMode || !this.map || !window.L) {
+      this.clearLassoDraftLayers();
+      return;
+    }
+
+    const draftLatLngs = this.lassoDraftLatLngs;
+
+    if (!draftLatLngs.length) {
+      this.clearLassoDraftLayers();
+      return;
+    }
+
+    const firstPoint = draftLatLngs[0];
+
+    if (!this.lassoStartMarker) {
+      this.lassoStartMarker = window.L.circleMarker(firstPoint, {
+        radius: 5,
+        color: "#ffffff",
+        weight: 2,
+        opacity: 1,
+        fillColor: LASSO_STROKE_COLOR,
+        fillOpacity: 1,
+        interactive: false
+      }).addTo(this.map);
+    } else {
+      this.lassoStartMarker.setLatLng(firstPoint);
+    }
+
+    if (!this.lassoDraftPolyline) {
+      this.lassoDraftPolyline = window.L.polyline(draftLatLngs, {
+        color: LASSO_STROKE_COLOR,
+        weight: 2,
+        opacity: 0.95,
+        dashArray: "6 6",
+        lineCap: "round",
+        lineJoin: "round",
+        interactive: false
+      }).addTo(this.map);
+    } else {
+      this.lassoDraftPolyline.setLatLngs(draftLatLngs);
+    }
+
+    if (draftLatLngs.length >= 3) {
+      if (!this.lassoDraftPolygon) {
+        this.lassoDraftPolygon = window.L.polygon(draftLatLngs, {
+          color: LASSO_STROKE_COLOR,
+          weight: 2,
+          opacity: 0.9,
+          dashArray: "6 6",
+          fillColor: LASSO_FILL_COLOR,
+          fillOpacity: 0.08,
+          interactive: false
+        }).addTo(this.map);
+      } else {
+        this.lassoDraftPolygon.setLatLngs(draftLatLngs);
+      }
+    } else if (this.lassoDraftPolygon && this.map) {
+      this.map.removeLayer(this.lassoDraftPolygon);
+      this.lassoDraftPolygon = null;
+    }
+  }
+
+  clearLassoGuideLayer() {
+    if (this.map && this.lassoGuidePolyline) {
+      this.map.removeLayer(this.lassoGuidePolyline);
+    }
+
+    this.lassoGuidePolyline = null;
+  }
+
+  clearLassoDraftLayers() {
+    if (this.map && this.lassoDraftPolyline) {
+      this.map.removeLayer(this.lassoDraftPolyline);
+    }
+    if (this.map && this.lassoDraftPolygon) {
+      this.map.removeLayer(this.lassoDraftPolygon);
+    }
+    if (this.map && this.lassoGuidePolyline) {
+      this.map.removeLayer(this.lassoGuidePolyline);
+    }
+    if (this.map && this.lassoStartMarker) {
+      this.map.removeLayer(this.lassoStartMarker);
+    }
+
+    this.lassoDraftPolyline = null;
+    this.lassoDraftPolygon = null;
+    this.lassoGuidePolyline = null;
+    this.lassoStartMarker = null;
+    this.lassoDraftLatLngs = [];
+  }
+
+  isNearFirstLassoVertex(candidateLatLng) {
+    if (!this.map || !this.lassoDraftLatLngs.length || !candidateLatLng) {
+      return false;
+    }
+
+    const firstPoint = this.lassoDraftLatLngs[0];
+    const firstContainerPoint = this.map.latLngToContainerPoint(firstPoint);
+    const candidateContainerPoint = this.map.latLngToContainerPoint(candidateLatLng);
+
+    return firstContainerPoint.distanceTo(candidateContainerPoint) <= LASSO_CLOSE_DISTANCE_PX;
+  }
+
+  selectFeaturesWithinLasso(polygonLatLngs) {
+    const closedPolygon = this.ensureClosedPolygonLatLngs(polygonLatLngs);
+    const selectedByKey = new Map();
+
+    this.getSelectableVisibleFeatures().forEach(({ layer, feature }) => {
+      if (!this.doesFeatureIntersectLasso(feature, closedPolygon)) {
+        return;
+      }
+
+      const snapshot = this.buildSelectedFeatureSnapshot(layer, feature);
+      if (!selectedByKey.has(snapshot.key)) {
+        selectedByKey.set(snapshot.key, snapshot);
+      }
+    });
+
+    return Array.from(selectedByKey.values()).sort((left, right) => {
+      const typeComparison = (left.typeLabel || "").localeCompare(right.typeLabel || "");
+      if (typeComparison !== 0) {
+        return typeComparison;
+      }
+
+      return (left.name || "").localeCompare(right.name || "");
+    });
+  }
+
+  reconcileSelectedLassoFeatures() {
+    if (!Array.isArray(this.selectedLassoFeatures) || !this.selectedLassoFeatures.length) {
+      return;
+    }
+
+    const selectedKeys = new Set(this.selectedLassoFeatures.map((feature) => feature.key));
+    const nextSelections = [];
+
+    this.getSelectableVisibleFeatures().forEach(({ layer, feature }) => {
+      const snapshot = this.buildSelectedFeatureSnapshot(layer, feature);
+      if (selectedKeys.has(snapshot.key)) {
+        nextSelections.push(snapshot);
+      }
+    });
+
+    this.selectedLassoFeatures = nextSelections;
+
+    if (!this.selectedLassoFeatures.length) {
+      this.isBulkWorkLogModalOpen = false;
+      this.clearSelectionHighlightLayers();
+    }
+  }
+
+  buildSelectedFeatureSnapshot(layer, feature) {
+    const objectApiName = this.normalizeString(
+      feature?.targetObjectApiName || layer?.objectApiName || ""
+    )?.toLowerCase();
+
+    return {
+      key: this.buildFeatureSelectionKey(objectApiName, feature?.recordId),
+      recordId: feature?.recordId || "",
+      objectApiName,
+      name: feature?.name || "",
+      typeLabel: objectApiName === SITE_OBJECT_API_NAME ? "Site" : "Segment",
+      layerName: layer?.mapLayerName || "",
+      geometryType: feature?.geometryType || "",
+      geometryRaw: feature?.geometryRaw || "",
+      latitude: this.toNumber(feature?.latitude),
+      longitude: this.toNumber(feature?.longitude),
+      canCreateWorkLog: Boolean(feature?.canCreateWorkLog || feature?.productionLineAllocationId),
+      productionLineAllocationId: feature?.productionLineAllocationId || ""
+    };
+  }
+
+  buildFeatureSelectionKey(objectApiName, recordId) {
+    return `${this.normalizeString(objectApiName || "") || ""}::${recordId || ""}`;
+  }
+
+  doesFeatureIntersectLasso(feature, polygonLatLngs) {
+    if (!feature || !Array.isArray(polygonLatLngs) || polygonLatLngs.length < 4) {
+      return false;
+    }
+
+    if (feature.geometryType === "point") {
+      const pointLatLng = [this.toNumber(feature.latitude), this.toNumber(feature.longitude)];
+      if (!Number.isFinite(pointLatLng[0]) || !Number.isFinite(pointLatLng[1])) {
+        return false;
+      }
+
+      return this.isPointInsidePolygon(pointLatLng, polygonLatLngs);
+    }
+
+    if (feature.geometryType === "polyline") {
+      const coordinateSets = this.extractPolylineCoordinateSets(feature.geometryRaw);
+      return coordinateSets.some((coordinateSet) => {
+        const latLngs = this.toLatLngs(coordinateSet);
+        return this.doesLatLngPolylineIntersectPolygon(latLngs, polygonLatLngs);
+      });
+    }
+
+    return false;
+  }
+
+  ensureClosedPolygonLatLngs(latLngs) {
+    if (!Array.isArray(latLngs) || !latLngs.length) {
+      return [];
+    }
+
+    const firstPoint = latLngs[0];
+    const lastPoint = latLngs[latLngs.length - 1];
+
+    if (this.areLatLngsEqual(firstPoint, lastPoint)) {
+      return [...latLngs];
+    }
+
+    return [...latLngs, firstPoint];
+  }
+
+  areLatLngsEqual(left, right) {
+    if (!Array.isArray(left) || !Array.isArray(right)) {
+      return false;
+    }
+
+    return (
+      Math.abs(Number(left[0]) - Number(right[0])) <= GEOMETRY_EPSILON &&
+      Math.abs(Number(left[1]) - Number(right[1])) <= GEOMETRY_EPSILON
+    );
+  }
+
+  doesLatLngPolylineIntersectPolygon(latLngs, polygonLatLngs) {
+    if (!Array.isArray(latLngs) || latLngs.length < 2 || !Array.isArray(polygonLatLngs)) {
+      return false;
+    }
+
+    if (latLngs.some((pointLatLng) => this.isPointInsidePolygon(pointLatLng, polygonLatLngs))) {
+      return true;
+    }
+
+    if (polygonLatLngs.some((polygonPoint) => this.isPointOnPolyline(polygonPoint, latLngs))) {
+      return true;
+    }
+
+    const polygonEdges = this.buildLatLngSegmentPairs(polygonLatLngs);
+
+    for (let index = 0; index < latLngs.length - 1; index += 1) {
+      const lineStart = latLngs[index];
+      const lineEnd = latLngs[index + 1];
+
+      for (let edgeIndex = 0; edgeIndex < polygonEdges.length; edgeIndex += 1) {
+        const polygonEdge = polygonEdges[edgeIndex];
+        if (
+          this.doLatLngSegmentsIntersect(
+            lineStart,
+            lineEnd,
+            polygonEdge.start,
+            polygonEdge.end
+          )
+        ) {
+          return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  buildLatLngSegmentPairs(latLngs) {
+    const segments = [];
+
+    if (!Array.isArray(latLngs) || latLngs.length < 2) {
+      return segments;
+    }
+
+    for (let index = 0; index < latLngs.length - 1; index += 1) {
+      segments.push({
+        start: latLngs[index],
+        end: latLngs[index + 1]
+      });
+    }
+
+    return segments;
+  }
+
+  isPointInsidePolygon(pointLatLng, polygonLatLngs) {
+    if (
+      !Array.isArray(pointLatLng) ||
+      !Array.isArray(polygonLatLngs) ||
+      polygonLatLngs.length < 4
+    ) {
+      return false;
+    }
+
+    if (this.isPointOnPolyline(pointLatLng, polygonLatLngs)) {
+      return true;
+    }
+
+    const pointX = Number(pointLatLng[1]);
+    const pointY = Number(pointLatLng[0]);
+
+    let isInside = false;
+
+    for (
+      let currentIndex = 0, previousIndex = polygonLatLngs.length - 1;
+      currentIndex < polygonLatLngs.length;
+      previousIndex = currentIndex++
+    ) {
+      const currentPoint = polygonLatLngs[currentIndex];
+      const previousPoint = polygonLatLngs[previousIndex];
+
+      const currentX = Number(currentPoint[1]);
+      const currentY = Number(currentPoint[0]);
+      const previousX = Number(previousPoint[1]);
+      const previousY = Number(previousPoint[0]);
+
+      const doesRayIntersect =
+        currentY > pointY !== previousY > pointY &&
+        pointX <
+          ((previousX - currentX) * (pointY - currentY)) /
+            (previousY - currentY || GEOMETRY_EPSILON) +
+            currentX;
+
+      if (doesRayIntersect) {
+        isInside = !isInside;
+      }
+    }
+
+    return isInside;
+  }
+
+  isPointOnPolyline(pointLatLng, lineLatLngs) {
+    if (!Array.isArray(pointLatLng) || !Array.isArray(lineLatLngs) || lineLatLngs.length < 2) {
+      return false;
+    }
+
+    for (let index = 0; index < lineLatLngs.length - 1; index += 1) {
+      if (this.isPointOnLatLngSegment(pointLatLng, lineLatLngs[index], lineLatLngs[index + 1])) {
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  isPointOnLatLngSegment(pointLatLng, segmentStart, segmentEnd) {
+    const pointX = Number(pointLatLng[1]);
+    const pointY = Number(pointLatLng[0]);
+    const startX = Number(segmentStart[1]);
+    const startY = Number(segmentStart[0]);
+    const endX = Number(segmentEnd[1]);
+    const endY = Number(segmentEnd[0]);
+
+    const crossProduct =
+      (pointY - startY) * (endX - startX) - (pointX - startX) * (endY - startY);
+
+    if (Math.abs(crossProduct) > GEOMETRY_EPSILON) {
+      return false;
+    }
+
+    const dotProduct =
+      (pointX - startX) * (endX - startX) + (pointY - startY) * (endY - startY);
+
+    if (dotProduct < -GEOMETRY_EPSILON) {
+      return false;
+    }
+
+    const segmentLengthSquared = (endX - startX) ** 2 + (endY - startY) ** 2;
+
+    return dotProduct - segmentLengthSquared <= GEOMETRY_EPSILON;
+  }
+
+  doLatLngSegmentsIntersect(firstStart, firstEnd, secondStart, secondEnd) {
+    const firstOrientation = this.getLatLngOrientation(firstStart, firstEnd, secondStart);
+    const secondOrientation = this.getLatLngOrientation(firstStart, firstEnd, secondEnd);
+    const thirdOrientation = this.getLatLngOrientation(secondStart, secondEnd, firstStart);
+    const fourthOrientation = this.getLatLngOrientation(secondStart, secondEnd, firstEnd);
+
+    if (firstOrientation !== secondOrientation && thirdOrientation !== fourthOrientation) {
+      return true;
+    }
+
+    if (
+      firstOrientation === 0 &&
+      this.isPointOnLatLngSegment(secondStart, firstStart, firstEnd)
+    ) {
+      return true;
+    }
+    if (
+      secondOrientation === 0 &&
+      this.isPointOnLatLngSegment(secondEnd, firstStart, firstEnd)
+    ) {
+      return true;
+    }
+    if (
+      thirdOrientation === 0 &&
+      this.isPointOnLatLngSegment(firstStart, secondStart, secondEnd)
+    ) {
+      return true;
+    }
+    if (
+      fourthOrientation === 0 &&
+      this.isPointOnLatLngSegment(firstEnd, secondStart, secondEnd)
+    ) {
+      return true;
+    }
+
+    return false;
+  }
+
+  getLatLngOrientation(startPoint, middlePoint, endPoint) {
+    const startX = Number(startPoint[1]);
+    const startY = Number(startPoint[0]);
+    const middleX = Number(middlePoint[1]);
+    const middleY = Number(middlePoint[0]);
+    const endX = Number(endPoint[1]);
+    const endY = Number(endPoint[0]);
+
+    const orientationValue =
+      (middleY - startY) * (endX - middleX) - (middleX - startX) * (endY - middleY);
+
+    if (Math.abs(orientationValue) <= GEOMETRY_EPSILON) {
+      return 0;
+    }
+
+    return orientationValue > 0 ? 1 : 2;
   }
 
   async handleToggleMapExpanded() {
@@ -1445,7 +2341,10 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       return;
     }
 
+    const viewState = this.captureMapViewState();
+
     this.closeAllFilterMenus();
+    this.cancelLassoMode();
     this.clearPendingViewportSync();
     this.destroyMap();
     this.isMapExpanded = nextExpandedState;
@@ -1457,7 +2356,14 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
     if (this.mapReady) {
       await this.waitForLayoutStabilization();
-      this.renderVisibleFeatures({ fitToBounds: true });
+      this.renderVisibleFeatures({ fitToBounds: !viewState });
+
+      if (viewState) {
+        this.scheduleMapViewportSync({
+          preserveView: true,
+          viewState
+        });
+      }
     }
   }
 
