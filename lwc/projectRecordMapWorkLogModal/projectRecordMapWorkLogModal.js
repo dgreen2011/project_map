@@ -23,6 +23,13 @@ const WORK_LOG_ATTACHMENT_FIELD = "sitetracker__Attachment__c";
 const WORK_LOG_GIS_PATH_FIELD = "sitetracker__st_GIS_Path__c";
 const SELECTION_MODE_FULL = "full";
 
+const MAX_DIRECT_UPLOAD_FILE_SIZE_BYTES = 3 * 1024 * 1024;
+const MAX_BASE64_PAYLOAD_LENGTH = 3700000;
+const IMAGE_COMPRESSION_TRIGGER_BYTES = 1.25 * 1024 * 1024;
+const IMAGE_COMPRESSION_MAX_DIMENSIONS = [2200, 1800, 1400, 1200];
+const IMAGE_COMPRESSION_QUALITY_STEPS = [0.86, 0.76, 0.66, 0.56];
+const COMPRESSIBLE_IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/jpg"]);
+
 const AUTO_HIDDEN_WORK_LOG_FIELDS = new Set([
   WORK_LOG_PROJECT_FIELD,
   WORK_LOG_PLA_FIELD,
@@ -95,7 +102,8 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
 
   get isSegmentTarget() {
     return (
-      this.normalizeString(this.targetObjectApiName)?.toLowerCase() === "sitetracker__segment__c"
+      this.normalizeString(this.targetObjectApiName)?.toLowerCase() ===
+      "sitetracker__segment__c"
     );
   }
 
@@ -199,7 +207,8 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
     this.resetTransientState();
 
     if (!this.targetRecordId || !this.targetObjectApiName) {
-      this.workLogContextError = "Unable to determine which record should be used for the Work Log.";
+      this.workLogContextError =
+        "Unable to determine which record should be used for the Work Log.";
       return;
     }
 
@@ -332,7 +341,10 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
 
       seenFieldNames.add(apiName);
 
-      const fieldModel = this.createFieldModel(apiName, this.getDefaultFieldValue(defaultValues, apiName));
+      const fieldModel = this.createFieldModel(
+        apiName,
+        this.getDefaultFieldValue(defaultValues, apiName)
+      );
 
       if (this.shouldHideWorkLogField(apiName)) {
         hiddenFields.push(fieldModel);
@@ -547,51 +559,33 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
     this.workLogUploadMessage = "Uploading selected files...";
 
     try {
-      const uploadRequests = [];
-
       for (const fileItem of this.pendingUploadFileBlobs) {
         try {
-          const base64Data = await this.readFileAsBase64(fileItem);
-          uploadRequests.push({
-            fileName: fileItem.name,
-            base64Data
+          const uploadRequest = await this.buildUploadRequest(fileItem);
+          const apexResults = await uploadFilesToWorkLog({
+            uploadRequests: [uploadRequest],
+            workLogId: this.createdWorkLogId
+          });
+
+          const apexResult = Array.isArray(apexResults) ? apexResults[0] : null;
+          const success = Boolean(apexResult?.success);
+
+          if (success && apexResult?.contentDocumentId) {
+            contentDocumentIds.push(apexResult.contentDocumentId);
+          }
+
+          uploadResults.push({
+            name: fileItem.name,
+            ok: success,
+            message: success
+              ? apexResult?.message || ""
+              : apexResult?.message || `Unable to upload ${fileItem.name}.`
           });
         } catch (error) {
           uploadResults.push({
             name: fileItem.name,
             ok: false,
             message: this.reduceError(error)
-          });
-        }
-      }
-
-      if (uploadRequests.length) {
-        try {
-          const apexResults = await uploadFilesToWorkLog({
-            uploadRequests,
-            workLogId: this.createdWorkLogId
-          });
-
-          (Array.isArray(apexResults) ? apexResults : []).forEach((result) => {
-            const success = Boolean(result?.success);
-            if (success && result?.contentDocumentId) {
-              contentDocumentIds.push(result.contentDocumentId);
-            }
-
-            uploadResults.push({
-              name: result?.fileName || "File",
-              ok: success,
-              message: result?.message || ""
-            });
-          });
-        } catch (error) {
-          const message = this.reduceError(error);
-          uploadRequests.forEach((requestItem) => {
-            uploadResults.push({
-              name: requestItem.fileName,
-              ok: false,
-              message
-            });
           });
         }
       }
@@ -627,10 +621,14 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
         }
 
         if (failedUploads.length) {
+          const failureSummary = failedUploads
+            .map((item) => `${item.name}: ${item.message || "Unknown error."}`)
+            .join("; ");
+
           messageParts.push(
-            `${failedUploads.length} file${failedUploads.length === 1 ? "" : "s"} failed (${failedUploads
-              .map((item) => item.name)
-              .join(", ")})`
+            `${failedUploads.length} file${failedUploads.length === 1 ? "" : "s"} failed${
+              failureSummary ? ` — ${failureSummary}` : ""
+            }`
           );
         }
 
@@ -654,21 +652,168 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
     }
   }
 
+  async buildUploadRequest(fileItem) {
+    if (!fileItem) {
+      throw new Error("A selected file could not be read.");
+    }
+
+    const shouldAttemptCompression =
+      this.isCompressibleImageFile(fileItem) &&
+      (fileItem.size > IMAGE_COMPRESSION_TRIGGER_BYTES || this.isLikelyMobileOrTabletDevice());
+
+    if (shouldAttemptCompression) {
+      try {
+        return await this.buildCompressedImageUploadRequest(fileItem);
+      } catch (error) {
+        if (!this.isWithinDirectUploadLimit(fileItem.size)) {
+          throw error;
+        }
+      }
+    }
+
+    const base64Data = await this.readFileAsBase64(fileItem);
+    this.assertBase64PayloadSize(fileItem.name, base64Data, fileItem.size);
+
+    return {
+      fileName: fileItem.name,
+      base64Data
+    };
+  }
+
+  isCompressibleImageFile(fileItem) {
+    return COMPRESSIBLE_IMAGE_MIME_TYPES.has(this.normalizeMimeType(fileItem?.type));
+  }
+
+  normalizeMimeType(mimeType) {
+    return typeof mimeType === "string" ? mimeType.trim().toLowerCase() : "";
+  }
+
+  isLikelyMobileOrTabletDevice() {
+    if (typeof navigator === "undefined") {
+      return false;
+    }
+
+    const userAgent = navigator.userAgent || "";
+    return /Android|iPad|iPhone|iPod|Mobile|Tablet/i.test(userAgent) || navigator.maxTouchPoints > 1;
+  }
+
+  isWithinDirectUploadLimit(sizeInBytes) {
+    const numericSize = Number(sizeInBytes);
+    return Number.isFinite(numericSize) && numericSize <= MAX_DIRECT_UPLOAD_FILE_SIZE_BYTES;
+  }
+
+  async buildCompressedImageUploadRequest(fileItem) {
+    const image = await this.loadImageElement(fileItem);
+    const sourceWidth = image.naturalWidth || image.width;
+    const sourceHeight = image.naturalHeight || image.height;
+
+    if (!sourceWidth || !sourceHeight) {
+      throw new Error(`Unable to process ${fileItem.name} for upload.`);
+    }
+
+    for (const maxDimension of IMAGE_COMPRESSION_MAX_DIMENSIONS) {
+      const scaledDimensions = this.scaleImageDimensions(sourceWidth, sourceHeight, maxDimension);
+
+      for (const quality of IMAGE_COMPRESSION_QUALITY_STEPS) {
+        const dataUrl = this.renderCompressedImageDataUrl(image, scaledDimensions, quality);
+        const base64Data = this.extractBase64Data(dataUrl, fileItem.name);
+
+        if (base64Data.length <= MAX_BASE64_PAYLOAD_LENGTH) {
+          return {
+            fileName: fileItem.name,
+            base64Data
+          };
+        }
+      }
+    }
+
+    throw new Error(
+      `${fileItem.name} is too large to upload from this device. Try a smaller image or reduce the image size before uploading.`
+    );
+  }
+
+  loadImageElement(fileItem) {
+    return new Promise((resolve, reject) => {
+      if (typeof window === "undefined" || typeof Image === "undefined") {
+        reject(new Error(`Image processing is not available for ${fileItem.name}.`));
+        return;
+      }
+
+      const urlFactory = window.URL || window.webkitURL;
+      if (!urlFactory?.createObjectURL) {
+        reject(new Error(`Image processing is not available for ${fileItem.name}.`));
+        return;
+      }
+
+      const objectUrl = urlFactory.createObjectURL(fileItem);
+      const image = new Image();
+
+      image.onload = () => {
+        urlFactory.revokeObjectURL(objectUrl);
+        resolve(image);
+      };
+
+      image.onerror = () => {
+        urlFactory.revokeObjectURL(objectUrl);
+        reject(new Error(`Unable to process ${fileItem.name} for upload.`));
+      };
+
+      image.src = objectUrl;
+    });
+  }
+
+  scaleImageDimensions(sourceWidth, sourceHeight, maxDimension) {
+    if (
+      !Number.isFinite(sourceWidth) ||
+      !Number.isFinite(sourceHeight) ||
+      sourceWidth <= 0 ||
+      sourceHeight <= 0
+    ) {
+      return {
+        width: sourceWidth,
+        height: sourceHeight
+      };
+    }
+
+    if (sourceWidth <= maxDimension && sourceHeight <= maxDimension) {
+      return {
+        width: sourceWidth,
+        height: sourceHeight
+      };
+    }
+
+    const scaleFactor = Math.min(maxDimension / sourceWidth, maxDimension / sourceHeight);
+
+    return {
+      width: Math.max(1, Math.round(sourceWidth * scaleFactor)),
+      height: Math.max(1, Math.round(sourceHeight * scaleFactor))
+    };
+  }
+
+  renderCompressedImageDataUrl(image, dimensions, quality) {
+    const canvas = document.createElement("canvas");
+    canvas.width = dimensions.width;
+    canvas.height = dimensions.height;
+
+    const context = canvas.getContext("2d");
+    if (!context) {
+      throw new Error("Canvas could not be created for image upload.");
+    }
+
+    context.drawImage(image, 0, 0, dimensions.width, dimensions.height);
+    return canvas.toDataURL("image/jpeg", quality);
+  }
+
   readFileAsBase64(fileItem) {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
 
       reader.onload = () => {
-        const result = typeof reader.result === "string" ? reader.result : "";
-        const marker = "base64,";
-        const markerIndex = result.indexOf(marker);
-
-        if (markerIndex < 0) {
-          reject(new Error(`Unable to read ${fileItem.name}.`));
-          return;
+        try {
+          resolve(this.extractBase64Data(reader.result, fileItem.name));
+        } catch (error) {
+          reject(error);
         }
-
-        resolve(result.slice(markerIndex + marker.length));
       };
 
       reader.onerror = () => {
@@ -677,6 +822,29 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
 
       reader.readAsDataURL(fileItem);
     });
+  }
+
+  extractBase64Data(dataUrl, fileName) {
+    const result = typeof dataUrl === "string" ? dataUrl : "";
+    const marker = "base64,";
+    const markerIndex = result.indexOf(marker);
+
+    if (markerIndex < 0) {
+      throw new Error(`Unable to read ${fileName}.`);
+    }
+
+    return result.slice(markerIndex + marker.length);
+  }
+
+  assertBase64PayloadSize(fileName, base64Data, originalSizeInBytes) {
+    if (typeof base64Data === "string" && base64Data.length <= MAX_BASE64_PAYLOAD_LENGTH) {
+      return;
+    }
+
+    const sizeLabel = this.formatFileSize(originalSizeInBytes);
+    throw new Error(
+      `${fileName} ${sizeLabel ? `(${sizeLabel}) ` : ""}is too large for this upload path. Try a smaller image or reduce the file size before uploading.`
+    );
   }
 
   formatFileSize(sizeInBytes) {
