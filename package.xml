@@ -8,6 +8,7 @@
         <members>projectRecordMap</members>
         <members>projectRecordMapWorkLogModal</members>
         <members>projectRecordMapSegmentPathEditor</members>
+        <members>projectRecordMapBulkWorkLogModal</members>
         <name>LightningComponentBundle</name>
     </types>
     <version>63.0</version>
