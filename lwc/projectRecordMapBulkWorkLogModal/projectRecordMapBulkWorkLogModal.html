@@ -84,9 +84,12 @@
         </template>
 
         <div class="prm-bulk-work-log-form-wrap">
-          <div class="prm-bulk-work-log-field-grid">
-            <div class="prm-bulk-work-log-field-cell">
+          <div class="prm-bulk-work-log-form-heading">Work Log Details</div>
+
+          <div class="prm-bulk-work-log-form-stack">
+            <div class="prm-bulk-work-log-form-row">
               <lightning-input
+                class="prm-bulk-work-log-date-input"
                 type="date"
                 name="bulkWorkLogDate"
                 label="Date"
@@ -96,12 +99,11 @@
                 required
               ></lightning-input>
             </div>
-          </div>
 
-          <lightning-record-edit-form object-api-name={workLogObjectApiName}>
-            <div class="prm-bulk-work-log-field-grid">
-              <div class="prm-bulk-work-log-field-cell">
+            <lightning-record-edit-form object-api-name={workLogObjectApiName}>
+              <div class="prm-bulk-work-log-form-row">
                 <lightning-input-field
+                  class="prm-bulk-work-log-actual-resource-field"
                   field-name={actualResourceFieldApiName}
                   data-field="actualResource"
                   onchange={handleFieldChange}
@@ -109,16 +111,17 @@
                 ></lightning-input-field>
               </div>
 
-              <div class="prm-bulk-work-log-field-cell prm-bulk-work-log-field-cell-full">
+              <div class="prm-bulk-work-log-form-row">
                 <lightning-input-field
+                  class="prm-bulk-work-log-comments-field"
                   field-name={commentsFieldApiName}
                   data-field="comments"
                   onchange={handleFieldChange}
                   disabled={isSaving}
                 ></lightning-input-field>
               </div>
-            </div>
-          </lightning-record-edit-form>
+            </lightning-record-edit-form>
+          </div>
         </div>
 
         <template if:true={showSelectionTable}>
