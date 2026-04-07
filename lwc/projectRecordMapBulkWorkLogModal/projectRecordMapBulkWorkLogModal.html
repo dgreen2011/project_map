@@ -1,0 +1,209 @@
+<template>
+  <section
+    role="dialog"
+    tabindex="-1"
+    aria-modal="true"
+    aria-labelledby="project-record-map-bulk-work-log-heading"
+    class="slds-modal slds-fade-in-open"
+  >
+    <div class="slds-modal__container prm-bulk-work-log-modal-container">
+      <header class="slds-modal__header prm-bulk-work-log-modal-header">
+        <lightning-button-icon
+          class="slds-modal__close"
+          icon-name="utility:close"
+          alternative-text="Close"
+          title="Close"
+          onclick={handleCloseClick}
+          disabled={isSaving}
+        ></lightning-button-icon>
+
+        <h2
+          id="project-record-map-bulk-work-log-heading"
+          class="slds-text-heading_medium prm-bulk-work-log-modal-title"
+        >
+          Create Work Logs
+        </h2>
+
+        <div class="prm-bulk-work-log-modal-subtitle">{selectionSummaryText}</div>
+      </header>
+
+      <div class="slds-modal__content prm-bulk-work-log-modal-body" id="project-record-map-bulk-work-log-body">
+        <div class="prm-bulk-work-log-summary-grid">
+          <div class="prm-bulk-work-log-summary-item">
+            <div class="prm-bulk-work-log-summary-label">Selected</div>
+            <div class="prm-bulk-work-log-summary-value">{totalSelectionCount}</div>
+          </div>
+
+          <div class="prm-bulk-work-log-summary-item">
+            <div class="prm-bulk-work-log-summary-label">Sites</div>
+            <div class="prm-bulk-work-log-summary-value">{siteCount}</div>
+          </div>
+
+          <div class="prm-bulk-work-log-summary-item">
+            <div class="prm-bulk-work-log-summary-label">Segments</div>
+            <div class="prm-bulk-work-log-summary-value">{segmentCount}</div>
+          </div>
+
+          <div class="prm-bulk-work-log-summary-item">
+            <div class="prm-bulk-work-log-summary-label">Eligible</div>
+            <div class="prm-bulk-work-log-summary-value">{eligibleCount}</div>
+          </div>
+        </div>
+
+        <div class="prm-bulk-work-log-summary-text">{eligibleSummaryText}</div>
+
+        <template if:true={showPreCreateWarning}>
+          <div class="message message-warning prm-bulk-work-log-inline-message">
+            <div class="message-title">Selection Warning</div>
+            <div>{preCreateWarningText}</div>
+          </div>
+        </template>
+
+        <template if:true={saveError}>
+          <div class="message message-error prm-bulk-work-log-inline-message">
+            <div class="message-title">Save Error</div>
+            <div>{saveError}</div>
+          </div>
+        </template>
+
+        <template if:true={saveSuccessMessage}>
+          <div class="message message-success prm-bulk-work-log-inline-message">
+            <div class="message-title">Work Logs Created</div>
+            <div>{saveSuccessMessage}</div>
+          </div>
+        </template>
+
+        <template if:true={showResultMessages}>
+          <div class="prm-bulk-work-log-result-list">
+            <template for:each={resultMessages} for:item="messageItem">
+              <div key={messageItem} class="message message-info prm-bulk-work-log-inline-message">
+                <div>{messageItem}</div>
+              </div>
+            </template>
+          </div>
+        </template>
+
+        <div class="prm-bulk-work-log-form-wrap">
+          <div class="prm-bulk-work-log-field-grid">
+            <div class="prm-bulk-work-log-field-cell">
+              <lightning-input
+                type="date"
+                name="bulkWorkLogDate"
+                label="Date"
+                value={workLogDate}
+                onchange={handleDateChange}
+                disabled={isSaving}
+                required
+              ></lightning-input>
+            </div>
+          </div>
+
+          <lightning-record-edit-form object-api-name={workLogObjectApiName}>
+            <div class="prm-bulk-work-log-field-grid">
+              <div class="prm-bulk-work-log-field-cell">
+                <lightning-input-field
+                  field-name={actualResourceFieldApiName}
+                  data-field="actualResource"
+                  onchange={handleFieldChange}
+                  disabled={isSaving}
+                ></lightning-input-field>
+              </div>
+
+              <div class="prm-bulk-work-log-field-cell prm-bulk-work-log-field-cell-full">
+                <lightning-input-field
+                  field-name={commentsFieldApiName}
+                  data-field="comments"
+                  onchange={handleFieldChange}
+                  disabled={isSaving}
+                ></lightning-input-field>
+              </div>
+            </div>
+          </lightning-record-edit-form>
+        </div>
+
+        <template if:true={showSelectionTable}>
+          <div class="prm-bulk-work-log-selection-section">
+            <div class="prm-bulk-work-log-selection-heading">Selected Records</div>
+
+            <div class="prm-bulk-work-log-selection-table-wrap">
+              <table class="prm-bulk-work-log-selection-table">
+                <thead>
+                  <tr>
+                    <th scope="col">Type</th>
+                    <th scope="col">Name</th>
+                    <th scope="col">Layer</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <template for:each={selections} for:item="selection">
+                    <tr key={selection.key}>
+                      <td>{selection.typeLabel}</td>
+                      <td>{selection.name}</td>
+                      <td>{selection.layerName}</td>
+                      <td>
+                        <template if:true={selection.isEligible}>
+                          <span class="prm-bulk-work-log-status prm-bulk-work-log-status-ready">
+                            Ready
+                          </span>
+                        </template>
+
+                        <template if:false={selection.isEligible}>
+                          <span class="prm-bulk-work-log-status prm-bulk-work-log-status-skip">
+                            Skip
+                          </span>
+                        </template>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </template>
+
+        <template if:true={isSaving}>
+          <div class="prm-bulk-work-log-spinner-wrap">
+            <lightning-spinner
+              size="small"
+              alternative-text="Creating work logs"
+            ></lightning-spinner>
+          </div>
+        </template>
+      </div>
+
+      <template if:true={showCreateFooter}>
+        <footer class="slds-modal__footer prm-bulk-work-log-modal-footer">
+          <div class="prm-bulk-work-log-modal-footer-actions">
+            <lightning-button
+              label="Cancel"
+              onclick={handleCloseClick}
+              disabled={isSaving}
+            ></lightning-button>
+
+            <lightning-button
+              variant="brand"
+              label={createButtonLabel}
+              onclick={handleCreateClick}
+              disabled={isSaving}
+            ></lightning-button>
+          </div>
+        </footer>
+      </template>
+
+      <template if:true={showDoneFooter}>
+        <footer class="slds-modal__footer prm-bulk-work-log-modal-footer">
+          <div class="prm-bulk-work-log-modal-footer-actions">
+            <lightning-button
+              variant="brand"
+              label={doneButtonLabel}
+              onclick={handleDoneClick}
+            ></lightning-button>
+          </div>
+        </footer>
+      </template>
+    </div>
+  </section>
+
+  <div class="slds-backdrop slds-backdrop_open prm-bulk-work-log-modal-backdrop"></div>
+</template>
