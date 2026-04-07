@@ -154,9 +154,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   get lassoButtonTitle() {
-    return this.isLassoMode
-      ? "Cancel lasso selection"
-      : "Lasso select Sites and Segments";
+    return this.isLassoMode ? "Cancel lasso selection" : "Lasso select Sites and Segments";
   }
 
   get lassoButtonIcon() {
@@ -871,9 +869,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       return null;
     }
 
-    return renderedLayers.length === 1
-      ? renderedLayers[0]
-      : window.L.featureGroup(renderedLayers);
+    return renderedLayers.length === 1 ? renderedLayers[0] : window.L.featureGroup(renderedLayers);
   }
 
   fitMapToFeatureGroup(featureGroup) {
@@ -2009,10 +2005,15 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
   selectFeaturesWithinLasso(polygonLatLngs) {
     const closedPolygon = this.ensureClosedPolygonLatLngs(polygonLatLngs);
+    const polygonPoints = this.toContainerPoints(closedPolygon);
     const selectedByKey = new Map();
 
+    if (polygonPoints.length < 4) {
+      return [];
+    }
+
     this.getSelectableVisibleFeatures().forEach(({ layer, feature }) => {
-      if (!this.doesFeatureIntersectLasso(feature, closedPolygon)) {
+      if (!this.doesFeatureIntersectLasso(feature, polygonPoints)) {
         return;
       }
 
@@ -2080,25 +2081,31 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     return `${this.normalizeString(objectApiName || "") || ""}::${recordId || ""}`;
   }
 
-  doesFeatureIntersectLasso(feature, polygonLatLngs) {
-    if (!feature || !Array.isArray(polygonLatLngs) || polygonLatLngs.length < 4) {
+  doesFeatureIntersectLasso(feature, polygonPoints) {
+    if (!feature || !Array.isArray(polygonPoints) || polygonPoints.length < 4 || !this.map) {
       return false;
     }
 
     if (feature.geometryType === "point") {
-      const pointLatLng = [this.toNumber(feature.latitude), this.toNumber(feature.longitude)];
-      if (!Number.isFinite(pointLatLng[0]) || !Number.isFinite(pointLatLng[1])) {
+      const point = this.toContainerPoint([
+        this.toNumber(feature.latitude),
+        this.toNumber(feature.longitude)
+      ]);
+
+      if (!point) {
         return false;
       }
 
-      return this.isPointInsidePolygon(pointLatLng, polygonLatLngs);
+      return this.isPointInsidePolygon(point, polygonPoints);
     }
 
     if (feature.geometryType === "polyline") {
       const coordinateSets = this.extractPolylineCoordinateSets(feature.geometryRaw);
+
       return coordinateSets.some((coordinateSet) => {
         const latLngs = this.toLatLngs(coordinateSet);
-        return this.doesLatLngPolylineIntersectPolygon(latLngs, polygonLatLngs);
+        const polylinePoints = this.toContainerPoints(latLngs);
+        return this.doesPolylineIntersectPolygon(polylinePoints, polygonPoints);
       });
     }
 
@@ -2113,53 +2120,69 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     const firstPoint = latLngs[0];
     const lastPoint = latLngs[latLngs.length - 1];
 
-    if (this.areLatLngsEqual(firstPoint, lastPoint)) {
+    if (this.areCoordinateTuplesEqual(firstPoint, lastPoint)) {
       return [...latLngs];
     }
 
     return [...latLngs, firstPoint];
   }
 
-  areLatLngsEqual(left, right) {
-    if (!Array.isArray(left) || !Array.isArray(right)) {
-      return false;
+  toContainerPoint(latLng) {
+    if (!this.map || !Array.isArray(latLng) || latLng.length < 2) {
+      return null;
     }
 
-    return (
-      Math.abs(Number(left[0]) - Number(right[0])) <= GEOMETRY_EPSILON &&
-      Math.abs(Number(left[1]) - Number(right[1])) <= GEOMETRY_EPSILON
-    );
+    const latitude = Number(latLng[0]);
+    const longitude = Number(latLng[1]);
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return null;
+    }
+
+    try {
+      const containerPoint = this.map.latLngToContainerPoint([latitude, longitude]);
+      return [Number(containerPoint.x), Number(containerPoint.y)];
+    } catch (error) {
+      return null;
+    }
   }
 
-  doesLatLngPolylineIntersectPolygon(latLngs, polygonLatLngs) {
-    if (!Array.isArray(latLngs) || latLngs.length < 2 || !Array.isArray(polygonLatLngs)) {
+  toContainerPoints(latLngs) {
+    if (!Array.isArray(latLngs)) {
+      return [];
+    }
+
+    return latLngs
+      .map((latLng) => this.toContainerPoint(latLng))
+      .filter((point) => Array.isArray(point));
+  }
+
+  doesPolylineIntersectPolygon(polylinePoints, polygonPoints) {
+    if (!Array.isArray(polylinePoints) || polylinePoints.length < 2) {
       return false;
     }
 
-    if (latLngs.some((pointLatLng) => this.isPointInsidePolygon(pointLatLng, polygonLatLngs))) {
+    if (!Array.isArray(polygonPoints) || polygonPoints.length < 4) {
+      return false;
+    }
+
+    if (polylinePoints.some((point) => this.isPointInsidePolygon(point, polygonPoints))) {
       return true;
     }
 
-    if (polygonLatLngs.some((polygonPoint) => this.isPointOnPolyline(polygonPoint, latLngs))) {
+    if (polygonPoints.some((point) => this.isPointOnPolyline(point, polylinePoints))) {
       return true;
     }
 
-    const polygonEdges = this.buildLatLngSegmentPairs(polygonLatLngs);
+    const polygonEdges = this.buildSegmentPairs(polygonPoints);
 
-    for (let index = 0; index < latLngs.length - 1; index += 1) {
-      const lineStart = latLngs[index];
-      const lineEnd = latLngs[index + 1];
+    for (let pointIndex = 0; pointIndex < polylinePoints.length - 1; pointIndex += 1) {
+      const lineStart = polylinePoints[pointIndex];
+      const lineEnd = polylinePoints[pointIndex + 1];
 
       for (let edgeIndex = 0; edgeIndex < polygonEdges.length; edgeIndex += 1) {
         const polygonEdge = polygonEdges[edgeIndex];
-        if (
-          this.doLatLngSegmentsIntersect(
-            lineStart,
-            lineEnd,
-            polygonEdge.start,
-            polygonEdge.end
-          )
-        ) {
+        if (this.doSegmentsIntersect(lineStart, lineEnd, polygonEdge.start, polygonEdge.end)) {
           return true;
         }
       }
@@ -2168,53 +2191,49 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     return false;
   }
 
-  buildLatLngSegmentPairs(latLngs) {
+  buildSegmentPairs(points) {
     const segments = [];
 
-    if (!Array.isArray(latLngs) || latLngs.length < 2) {
+    if (!Array.isArray(points) || points.length < 2) {
       return segments;
     }
 
-    for (let index = 0; index < latLngs.length - 1; index += 1) {
+    for (let index = 0; index < points.length - 1; index += 1) {
       segments.push({
-        start: latLngs[index],
-        end: latLngs[index + 1]
+        start: points[index],
+        end: points[index + 1]
       });
     }
 
     return segments;
   }
 
-  isPointInsidePolygon(pointLatLng, polygonLatLngs) {
-    if (
-      !Array.isArray(pointLatLng) ||
-      !Array.isArray(polygonLatLngs) ||
-      polygonLatLngs.length < 4
-    ) {
+  isPointInsidePolygon(point, polygonPoints) {
+    if (!Array.isArray(point) || !Array.isArray(polygonPoints) || polygonPoints.length < 4) {
       return false;
     }
 
-    if (this.isPointOnPolyline(pointLatLng, polygonLatLngs)) {
+    if (this.isPointOnPolyline(point, polygonPoints)) {
       return true;
     }
 
-    const pointX = Number(pointLatLng[1]);
-    const pointY = Number(pointLatLng[0]);
+    const pointX = Number(point[0]);
+    const pointY = Number(point[1]);
 
     let isInside = false;
 
     for (
-      let currentIndex = 0, previousIndex = polygonLatLngs.length - 1;
-      currentIndex < polygonLatLngs.length;
+      let currentIndex = 0, previousIndex = polygonPoints.length - 1;
+      currentIndex < polygonPoints.length;
       previousIndex = currentIndex++
     ) {
-      const currentPoint = polygonLatLngs[currentIndex];
-      const previousPoint = polygonLatLngs[previousIndex];
+      const currentPoint = polygonPoints[currentIndex];
+      const previousPoint = polygonPoints[previousIndex];
 
-      const currentX = Number(currentPoint[1]);
-      const currentY = Number(currentPoint[0]);
-      const previousX = Number(previousPoint[1]);
-      const previousY = Number(previousPoint[0]);
+      const currentX = Number(currentPoint[0]);
+      const currentY = Number(currentPoint[1]);
+      const previousX = Number(previousPoint[0]);
+      const previousY = Number(previousPoint[1]);
 
       const doesRayIntersect =
         currentY > pointY !== previousY > pointY &&
@@ -2231,13 +2250,13 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     return isInside;
   }
 
-  isPointOnPolyline(pointLatLng, lineLatLngs) {
-    if (!Array.isArray(pointLatLng) || !Array.isArray(lineLatLngs) || lineLatLngs.length < 2) {
+  isPointOnPolyline(point, linePoints) {
+    if (!Array.isArray(point) || !Array.isArray(linePoints) || linePoints.length < 2) {
       return false;
     }
 
-    for (let index = 0; index < lineLatLngs.length - 1; index += 1) {
-      if (this.isPointOnLatLngSegment(pointLatLng, lineLatLngs[index], lineLatLngs[index + 1])) {
+    for (let index = 0; index < linePoints.length - 1; index += 1) {
+      if (this.isPointOnSegment(point, linePoints[index], linePoints[index + 1])) {
         return true;
       }
     }
@@ -2245,13 +2264,13 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     return false;
   }
 
-  isPointOnLatLngSegment(pointLatLng, segmentStart, segmentEnd) {
-    const pointX = Number(pointLatLng[1]);
-    const pointY = Number(pointLatLng[0]);
-    const startX = Number(segmentStart[1]);
-    const startY = Number(segmentStart[0]);
-    const endX = Number(segmentEnd[1]);
-    const endY = Number(segmentEnd[0]);
+  isPointOnSegment(point, segmentStart, segmentEnd) {
+    const pointX = Number(point[0]);
+    const pointY = Number(point[1]);
+    const startX = Number(segmentStart[0]);
+    const startY = Number(segmentStart[1]);
+    const endX = Number(segmentEnd[0]);
+    const endY = Number(segmentEnd[1]);
 
     const crossProduct =
       (pointY - startY) * (endX - startX) - (pointX - startX) * (endY - startY);
@@ -2272,216 +2291,14 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     return dotProduct - segmentLengthSquared <= GEOMETRY_EPSILON;
   }
 
-  doLatLngSegmentsIntersect(firstStart, firstEnd, secondStart, secondEnd) {
-    const firstOrientation = this.getLatLngOrientation(firstStart, firstEnd, secondStart);
-    const secondOrientation = this.getLatLngOrientation(firstStart, firstEnd, secondEnd);
-    const thirdOrientation = this.getLatLngOrientation(secondStart, secondEnd, firstStart);
-    const fourthOrientation = this.getLatLngOrientation(secondStart, secondEnd, firstEnd);
+  doSegmentsIntersect(firstStart, firstEnd, secondStart, secondEnd) {
+    const firstOrientation = this.getPointOrientation(firstStart, firstEnd, secondStart);
+    const secondOrientation = this.getPointOrientation(firstStart, firstEnd, secondEnd);
+    const thirdOrientation = this.getPointOrientation(secondStart, secondEnd, firstStart);
+    const fourthOrientation = this.getPointOrientation(secondStart, secondEnd, firstEnd);
 
     if (firstOrientation !== secondOrientation && thirdOrientation !== fourthOrientation) {
       return true;
     }
 
     if (
-      firstOrientation === 0 &&
-      this.isPointOnLatLngSegment(secondStart, firstStart, firstEnd)
-    ) {
-      return true;
-    }
-    if (
-      secondOrientation === 0 &&
-      this.isPointOnLatLngSegment(secondEnd, firstStart, firstEnd)
-    ) {
-      return true;
-    }
-    if (
-      thirdOrientation === 0 &&
-      this.isPointOnLatLngSegment(firstStart, secondStart, secondEnd)
-    ) {
-      return true;
-    }
-    if (
-      fourthOrientation === 0 &&
-      this.isPointOnLatLngSegment(firstEnd, secondStart, secondEnd)
-    ) {
-      return true;
-    }
-
-    return false;
-  }
-
-  getLatLngOrientation(startPoint, middlePoint, endPoint) {
-    const startX = Number(startPoint[1]);
-    const startY = Number(startPoint[0]);
-    const middleX = Number(middlePoint[1]);
-    const middleY = Number(middlePoint[0]);
-    const endX = Number(endPoint[1]);
-    const endY = Number(endPoint[0]);
-
-    const orientationValue =
-      (middleY - startY) * (endX - middleX) - (middleX - startX) * (endY - middleY);
-
-    if (Math.abs(orientationValue) <= GEOMETRY_EPSILON) {
-      return 0;
-    }
-
-    return orientationValue > 0 ? 1 : 2;
-  }
-
-  async handleToggleMapExpanded() {
-    await this.setMapExpanded(!this.isMapExpanded);
-  }
-
-  async handleCloseMapExpanded() {
-    await this.setMapExpanded(false);
-  }
-
-  async setMapExpanded(nextExpandedState) {
-    if (this.isMapExpanded === nextExpandedState) {
-      return;
-    }
-
-    const viewState = this.captureMapViewState();
-
-    this.closeAllFilterMenus();
-    this.cancelLassoMode();
-    this.clearPendingViewportSync();
-    this.destroyMap();
-    this.isMapExpanded = nextExpandedState;
-
-    await this.waitForLayoutStabilization();
-    await this.waitForMapContainerReady();
-
-    this.initializeMap();
-
-    if (this.mapReady) {
-      await this.waitForLayoutStabilization();
-      this.renderVisibleFeatures({ fitToBounds: !viewState });
-
-      if (viewState) {
-        this.scheduleMapViewportSync({
-          preserveView: true,
-          viewState
-        });
-      }
-    }
-  }
-
-  async openRecordInNewTab(recordId, objectApiName) {
-    const url = await this.generateRecordUrl(recordId, objectApiName);
-    if (!url || typeof window === "undefined") {
-      return;
-    }
-
-    window.open(url, "_blank", "noopener");
-  }
-
-  async generateRecordUrl(recordId, objectApiName) {
-    if (!recordId) {
-      return "";
-    }
-
-    try {
-      return await this[NavigationMixin.GenerateUrl]({
-        type: "standard__recordPage",
-        attributes: {
-          recordId,
-          objectApiName,
-          actionName: "view"
-        }
-      });
-    } catch (error) {
-      return this.buildFallbackRecordUrl(recordId, objectApiName);
-    }
-  }
-
-  async waitForMapContainerReady(maxAttempts = 16) {
-    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const mapContainer = this.template.querySelector('[data-id="map"]');
-      if (mapContainer) {
-        return;
-      }
-
-      await this.waitForNextFrame();
-    }
-  }
-
-  waitForNextFrame() {
-    return new Promise((resolve) => {
-      if (typeof window.requestAnimationFrame === "function") {
-        window.requestAnimationFrame(() => resolve());
-      } else {
-        window.setTimeout(resolve, 0);
-      }
-    });
-  }
-
-  safeParseJson(value) {
-    if (!value || typeof value !== "string") {
-      return null;
-    }
-
-    const trimmedValue = value.trim();
-    if (!trimmedValue) {
-      return null;
-    }
-
-    try {
-      return JSON.parse(trimmedValue);
-    } catch (error) {
-      return null;
-    }
-  }
-
-  normalizeString(value) {
-    return typeof value === "string" ? value.trim() : value;
-  }
-
-  toNumber(value) {
-    if (value === null || value === undefined || value === "") {
-      return NaN;
-    }
-
-    const numericValue = Number(value);
-    return Number.isFinite(numericValue) ? numericValue : NaN;
-  }
-
-  escapeHtml(value) {
-    return String(value ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#39;");
-  }
-
-  dispatchToast(title, message, variant) {
-    this.dispatchEvent(
-      new ShowToastEvent({
-        title,
-        message,
-        variant
-      })
-    );
-  }
-
-  reduceError(error) {
-    if (!error) {
-      return "Unknown error.";
-    }
-
-    if (Array.isArray(error?.body)) {
-      return error.body.map((item) => item.message).join(", ");
-    }
-
-    if (typeof error?.body?.message === "string") {
-      return error.body.message;
-    }
-
-    if (typeof error?.message === "string") {
-      return error.message;
-    }
-
-    return "Unknown error.";
-  }
-}
