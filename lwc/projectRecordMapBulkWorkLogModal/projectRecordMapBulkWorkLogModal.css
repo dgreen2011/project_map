@@ -1,0 +1,308 @@
+:host {
+  display: block;
+}
+
+.prm-bulk-work-log-modal-container {
+  width: min(60rem, calc(100vw - 2rem));
+  max-width: 60rem;
+}
+
+.prm-bulk-work-log-modal-header {
+  padding: 0.9rem 1rem 0.75rem;
+  border-bottom: 1px solid #d8dde6;
+  background: #ffffff;
+}
+
+.prm-bulk-work-log-modal-title {
+  font-size: 1.18rem;
+  font-weight: 600;
+  color: #032d60;
+  line-height: 1.2;
+}
+
+.prm-bulk-work-log-modal-subtitle {
+  margin-top: 0.35rem;
+  font-size: 0.88rem;
+  color: #5c5c5c;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
+.prm-bulk-work-log-modal-body {
+  position: relative;
+  padding: 0.9rem 1rem 0.95rem;
+  background: #ffffff;
+  min-height: 9rem;
+  max-height: 70vh;
+  overflow: auto;
+}
+
+.prm-bulk-work-log-modal-footer {
+  position: relative;
+  padding: 0.75rem 1rem;
+  border-top: 1px solid #d8dde6;
+  background: #fafaf9;
+  box-shadow: none;
+}
+
+.prm-bulk-work-log-modal-footer-actions {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.65rem;
+  width: 100%;
+}
+
+.prm-bulk-work-log-modal-backdrop {
+  z-index: 9000;
+}
+
+.slds-modal {
+  z-index: 9001;
+}
+
+.prm-bulk-work-log-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
+  margin-bottom: 0.7rem;
+}
+
+.prm-bulk-work-log-summary-item {
+  border: 1px solid #d8dde6;
+  border-radius: 0.45rem;
+  background: #fafaf9;
+  padding: 0.7rem 0.75rem;
+  min-width: 0;
+}
+
+.prm-bulk-work-log-summary-label {
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: #5c5c5c;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  line-height: 1.2;
+  margin-bottom: 0.18rem;
+}
+
+.prm-bulk-work-log-summary-value {
+  font-size: 1rem;
+  font-weight: 700;
+  color: #181818;
+  line-height: 1.2;
+}
+
+.prm-bulk-work-log-summary-text {
+  font-size: 0.83rem;
+  color: #5c5c5c;
+  line-height: 1.45;
+  margin-bottom: 0.8rem;
+}
+
+.prm-bulk-work-log-inline-message {
+  margin-bottom: 0.8rem;
+}
+
+.prm-bulk-work-log-result-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.45rem;
+  margin-bottom: 0.8rem;
+}
+
+.prm-bulk-work-log-form-wrap {
+  border: 1px solid #d8dde6;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  padding: 0.9rem;
+  margin-bottom: 0.95rem;
+}
+
+.prm-bulk-work-log-field-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.7rem 0.95rem;
+}
+
+.prm-bulk-work-log-field-cell {
+  min-width: 0;
+}
+
+.prm-bulk-work-log-field-cell-full {
+  grid-column: 1 / -1;
+}
+
+.prm-bulk-work-log-selection-section {
+  border: 1px solid #d8dde6;
+  border-radius: 0.5rem;
+  background: #ffffff;
+  padding: 0.9rem;
+}
+
+.prm-bulk-work-log-selection-heading {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #181818;
+  line-height: 1.25;
+  margin-bottom: 0.7rem;
+}
+
+.prm-bulk-work-log-selection-table-wrap {
+  overflow: auto;
+  border: 1px solid #d8dde6;
+  border-radius: 0.45rem;
+}
+
+.prm-bulk-work-log-selection-table {
+  width: 100%;
+  border-collapse: collapse;
+  min-width: 36rem;
+}
+
+.prm-bulk-work-log-selection-table thead th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: #f3f3f3;
+  color: #444;
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  text-align: left;
+  padding: 0.6rem 0.7rem;
+  border-bottom: 1px solid #d8dde6;
+  white-space: nowrap;
+}
+
+.prm-bulk-work-log-selection-table tbody td {
+  font-size: 0.82rem;
+  color: #181818;
+  line-height: 1.35;
+  padding: 0.58rem 0.7rem;
+  border-bottom: 1px solid #eef1f6;
+  vertical-align: top;
+  word-break: break-word;
+}
+
+.prm-bulk-work-log-selection-table tbody tr:last-child td {
+  border-bottom: 0;
+}
+
+.prm-bulk-work-log-status {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid;
+  border-radius: 999px;
+  padding: 0.15rem 0.45rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  line-height: 1;
+  white-space: nowrap;
+}
+
+.prm-bulk-work-log-status-ready {
+  color: #194e31;
+  background: #edf9f1;
+  border-color: #91d9a6;
+}
+
+.prm-bulk-work-log-status-skip {
+  color: #6f4a00;
+  background: #fdf6e5;
+  border-color: #f5d98b;
+}
+
+.prm-bulk-work-log-spinner-wrap {
+  display: flex;
+  justify-content: center;
+  padding: 0.85rem 0 0.15rem;
+}
+
+.message {
+  border-radius: 0.45rem;
+  border: 1px solid;
+  padding: 0.7rem 0.8rem;
+  font-size: 0.82rem;
+  line-height: 1.4;
+  word-break: break-word;
+}
+
+.message-title {
+  font-size: 0.74rem;
+  font-weight: 700;
+  margin-bottom: 0.2rem;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+}
+
+.message-error {
+  color: #8e030f;
+  background: #fef1ee;
+  border-color: #f9c7c0;
+}
+
+.message-warning {
+  color: #6f4a00;
+  background: #fdf6e5;
+  border-color: #f5d98b;
+}
+
+.message-info {
+  color: #16325c;
+  background: #f3f7ff;
+  border-color: #c7d7f7;
+}
+
+.message-success {
+  color: #194e31;
+  background: #edf9f1;
+  border-color: #91d9a6;
+}
+
+@media (max-width: 900px) {
+  .prm-bulk-work-log-summary-grid,
+  .prm-bulk-work-log-field-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .prm-bulk-work-log-field-cell-full {
+    grid-column: auto;
+  }
+
+  .prm-bulk-work-log-selection-table {
+    min-width: 30rem;
+  }
+}
+
+@media (max-width: 640px) {
+  .prm-bulk-work-log-modal-container {
+    width: calc(100vw - 0.9rem);
+  }
+
+  .prm-bulk-work-log-modal-header,
+  .prm-bulk-work-log-modal-body,
+  .prm-bulk-work-log-modal-footer {
+    padding-left: 0.85rem;
+    padding-right: 0.85rem;
+  }
+
+  .prm-bulk-work-log-modal-footer-actions {
+    flex-wrap: wrap;
+    justify-content: stretch;
+  }
+
+  .prm-bulk-work-log-modal-footer-actions lightning-button {
+    width: 100%;
+  }
+
+  .prm-bulk-work-log-form-wrap,
+  .prm-bulk-work-log-selection-section {
+    padding: 0.8rem;
+  }
+
+  .prm-bulk-work-log-selection-table {
+    min-width: 26rem;
+  }
+}
