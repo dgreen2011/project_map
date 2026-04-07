@@ -115,22 +115,50 @@
   border: 1px solid #d8dde6;
   border-radius: 0.5rem;
   background: #ffffff;
-  padding: 0.9rem;
+  padding: 0.95rem;
   margin-bottom: 0.95rem;
 }
 
-.prm-bulk-work-log-field-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.7rem 0.95rem;
+.prm-bulk-work-log-form-heading {
+  font-size: 0.92rem;
+  font-weight: 700;
+  color: #181818;
+  line-height: 1.25;
+  margin-bottom: 0.85rem;
 }
 
-.prm-bulk-work-log-field-cell {
+.prm-bulk-work-log-form-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.prm-bulk-work-log-form-row {
+  width: 100%;
   min-width: 0;
 }
 
-.prm-bulk-work-log-field-cell-full {
-  grid-column: 1 / -1;
+.prm-bulk-work-log-date-input,
+.prm-bulk-work-log-actual-resource-field {
+  display: block;
+  width: 100%;
+  max-width: 28rem;
+}
+
+.prm-bulk-work-log-comments-field {
+  display: block;
+  width: 100%;
+}
+
+.prm-bulk-work-log-date-input,
+.prm-bulk-work-log-actual-resource-field,
+.prm-bulk-work-log-comments-field {
+  --slds-c-input-radius-border: 0.45rem;
+  --slds-c-textarea-radius-border: 0.45rem;
+}
+
+.prm-bulk-work-log-comments-field {
+  --slds-c-textarea-sizing-min-height: 7rem;
 }
 
 .prm-bulk-work-log-selection-section {
@@ -262,13 +290,13 @@
 }
 
 @media (max-width: 900px) {
-  .prm-bulk-work-log-summary-grid,
-  .prm-bulk-work-log-field-grid {
-    grid-template-columns: 1fr;
+  .prm-bulk-work-log-summary-grid {
+    grid-template-columns: 1fr 1fr;
   }
 
-  .prm-bulk-work-log-field-cell-full {
-    grid-column: auto;
+  .prm-bulk-work-log-date-input,
+  .prm-bulk-work-log-actual-resource-field {
+    max-width: 100%;
   }
 
   .prm-bulk-work-log-selection-table {
@@ -295,6 +323,10 @@
 
   .prm-bulk-work-log-modal-footer-actions lightning-button {
     width: 100%;
+  }
+
+  .prm-bulk-work-log-summary-grid {
+    grid-template-columns: 1fr;
   }
 
   .prm-bulk-work-log-form-wrap,
