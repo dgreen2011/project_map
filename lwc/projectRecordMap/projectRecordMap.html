@@ -198,6 +198,17 @@
 
               <div class="map-overlay-actions">
                 <button
+                  class="map-expand-button map-lasso-button"
+                  type="button"
+                  title={lassoButtonTitle}
+                  aria-label={lassoButtonTitle}
+                  onclick={handleToggleLassoMode}
+                  disabled={isLassoButtonDisabled}
+                >
+                  <span class="map-expand-button-icon" aria-hidden="true">{lassoButtonIcon}</span>
+                </button>
+
+                <button
                   class="map-expand-button"
                   type="button"
                   title={mapExpandButtonTitle}
@@ -385,6 +396,29 @@
                 </div>
               </template>
 
+              <div class="map-overlay-actions map-overlay-actions-popout">
+                <button
+                  class="map-expand-button map-lasso-button"
+                  type="button"
+                  title={lassoButtonTitle}
+                  aria-label={lassoButtonTitle}
+                  onclick={handleToggleLassoMode}
+                  disabled={isLassoButtonDisabled}
+                >
+                  <span class="map-expand-button-icon" aria-hidden="true">{lassoButtonIcon}</span>
+                </button>
+
+                <button
+                  class="map-expand-button"
+                  type="button"
+                  title={mapExpandButtonTitle}
+                  aria-label={mapExpandButtonTitle}
+                  onclick={handleToggleMapExpanded}
+                >
+                  <span class="map-expand-button-icon" aria-hidden="true">{mapExpandButtonIcon}</span>
+                </button>
+              </div>
+
               <div class="map-frame map-frame-popout">
                 <div data-id="map" class="map-root" style={mapStyle} lwc:dom="manual"></div>
               </div>
@@ -406,5 +440,14 @@
       segment-detail-field-set-api-name={segmentDetailFieldSetApiName}
       onclose={handleWorkLogModalClose}
     ></c-project-record-map-work-log-modal>
+  </template>
+
+  <template if:true={isBulkWorkLogModalOpen}>
+    <c-project-record-map-bulk-work-log-modal
+      project-id={recordId}
+      selections={bulkWorkLogSelections}
+      onclose={handleBulkWorkLogModalClose}
+      oncreated={handleBulkWorkLogCreated}
+    ></c-project-record-map-bulk-work-log-modal>
   </template>
 </template>
