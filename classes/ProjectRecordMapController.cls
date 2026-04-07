@@ -11,10 +11,28 @@ public with sharing class ProjectRecordMapController {
     private static final String SEGMENT_TOTAL_LENGTH_FIELD_API = 'sitetracker__st_Total_Length__c';
     private static final String WORK_LOG_FALLBACK_LAT_FIELD = 'sitetracker__Location__Latitude__s';
     private static final String WORK_LOG_FALLBACK_LNG_FIELD = 'sitetracker__Location__Longitude__s';
+
+    private static final String WORK_LOG_PROJECT_FIELD = 'sitetracker__Project__c';
+    private static final String WORK_LOG_PLA_FIELD = 'sitetracker__Production_Line_Allocation__c';
+    private static final String WORK_LOG_PPL_FIELD = 'sitetracker__st_Production_Plan_Line__c';
+    private static final String WORK_LOG_SERVICE_FIELD = 'sitetracker__Item__c';
+    private static final String WORK_LOG_SITE_FIELD = 'sitetracker__Site__c';
+    private static final String WORK_LOG_SEGMENT_FIELD = 'sitetracker__Segment__c';
+    private static final String WORK_LOG_START_DATE_FIELD = 'sitetracker__Start_Date__c';
+    private static final String WORK_LOG_END_DATE_FIELD = 'sitetracker__End_Date__c';
+    private static final String WORK_LOG_STATUS_FIELD = 'sitetracker__Status__c';
+    private static final String WORK_LOG_JOB_FIELD = 'sitetracker__Job__c';
+    private static final String WORK_LOG_ACTIVITY_FIELD = 'sitetracker__Activity__c';
+    private static final String WORK_LOG_ACTUAL_RESOURCE_FIELD = 'sitetracker__Actual_Resource__c';
+    private static final String WORK_LOG_COMMENTS_FIELD = 'sitetracker__Comments__c';
+    private static final String WORK_LOG_BULK_CREATED_FIELD = 'Bulk_Created__c';
+    private static final String WORK_LOG_STATUS_DRAFT = 'Draft';
+
     private static final List<String> WORK_LOG_QUANTITY_FIELD_CANDIDATES = new List<String>{
         'sitetracker__Quantity__c',
         'Quantity__c'
     };
+
     private static final Pattern SAFE_FIELD_PATH_PATTERN =
         Pattern.compile('^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)*$');
 
@@ -33,7 +51,6 @@ public with sharing class ProjectRecordMapController {
         @AuraEnabled public String relationshipFieldPathOverride4 { get; set; }
         @AuraEnabled public String relationshipFieldPathOverride5 { get; set; }
 
-        // Optional. This supports your earlier "RUS Code" style filtering ask on the map.
         @AuraEnabled public String filterFieldPathOverride1 { get; set; }
         @AuraEnabled public String filterFieldPathOverride2 { get; set; }
         @AuraEnabled public String filterFieldPathOverride3 { get; set; }
@@ -114,6 +131,8 @@ public with sharing class ProjectRecordMapController {
         @AuraEnabled public String filterValue { get; set; }
         @AuraEnabled public String styleValue { get; set; }
         @AuraEnabled public Boolean canCreateWorkLog { get; set; }
+        @AuraEnabled public Id productionLineAllocationId { get; set; }
+        @AuraEnabled public String targetObjectApiName { get; set; }
 
         @AuraEnabled public List<PopupValue> popupValues { get; set; }
     }
@@ -176,6 +195,28 @@ public with sharing class ProjectRecordMapController {
         @AuraEnabled public Boolean success { get; set; }
         @AuraEnabled public String message { get; set; }
         @AuraEnabled public Id contentDocumentId { get; set; }
+    }
+
+    public class BulkWorkLogSelectionRequest {
+        @AuraEnabled public Id featureRecordId { get; set; }
+        @AuraEnabled public String featureObjectApiName { get; set; }
+    }
+
+    public class BulkWorkLogCreateRequest {
+        @AuraEnabled public Id projectId { get; set; }
+        @AuraEnabled public String workLogDateIso { get; set; }
+        @AuraEnabled public Id actualResourceId { get; set; }
+        @AuraEnabled public String comments { get; set; }
+        @AuraEnabled public List<BulkWorkLogSelectionRequest> selections { get; set; }
+    }
+
+    public class BulkWorkLogCreateResult {
+        @AuraEnabled public Integer requestedCount { get; set; }
+        @AuraEnabled public Integer eligibleCount { get; set; }
+        @AuraEnabled public Integer createdCount { get; set; }
+        @AuraEnabled public Integer skippedCount { get; set; }
+        @AuraEnabled public List<String> messages { get; set; }
+        @AuraEnabled public List<String> createdWorkLogIds { get; set; }
     }
 
     private class RequestedLayerSlot {
@@ -299,7 +340,7 @@ public with sharing class ProjectRecordMapController {
             ? DEFAULT_WORK_LOG_FIELD_SET
             : normalizeString(fieldSetApiName);
         response.targetDetailFieldSetApiName = normalizeString(targetDetailFieldSetApiName);
-        response.statusValue = 'Draft';
+        response.statusValue = WORK_LOG_STATUS_DRAFT;
         response.startDateIso = String.valueOf(Date.today());
         response.endDateIso = String.valueOf(Date.today());
         response.defaultValues = new Map<String, String>();
@@ -395,6 +436,213 @@ public with sharing class ProjectRecordMapController {
         }
 
         return response;
+    }
+
+    @AuraEnabled
+    public static BulkWorkLogCreateResult createBulkWorkLogs(BulkWorkLogCreateRequest request) {
+        if (request == null) {
+            throw handledException('Bulk Work Log request is required.');
+        }
+
+        String normalizedDateIso = normalizeString(request.workLogDateIso);
+        if (String.isBlank(normalizedDateIso)) {
+            throw handledException('A valid Work Log date is required.');
+        }
+
+        Date workLogDate;
+        try {
+            workLogDate = Date.valueOf(normalizedDateIso);
+        } catch (Exception ex) {
+            throw handledException('A valid Work Log date is required.');
+        }
+
+        List<BulkWorkLogSelectionRequest> incomingSelections = request.selections == null
+            ? new List<BulkWorkLogSelectionRequest>()
+            : request.selections;
+
+        if (incomingSelections.isEmpty()) {
+            throw handledException('Select at least one Site or Segment before creating Work Logs.');
+        }
+
+        BulkWorkLogCreateResult result = new BulkWorkLogCreateResult();
+        result.requestedCount = 0;
+        result.eligibleCount = 0;
+        result.createdCount = 0;
+        result.skippedCount = 0;
+        result.messages = new List<String>();
+        result.createdWorkLogIds = new List<String>();
+
+        Set<String> seenSelectionKeys = new Set<String>();
+        List<BulkWorkLogSelectionRequest> orderedSelections = new List<BulkWorkLogSelectionRequest>();
+        Set<Id> siteIds = new Set<Id>();
+        Set<Id> segmentIds = new Set<Id>();
+
+        for (BulkWorkLogSelectionRequest incomingSelection : incomingSelections) {
+            if (incomingSelection == null || incomingSelection.featureRecordId == null) {
+                result.skippedCount++;
+                result.messages.add('Skipped a selected record because its identity was incomplete.');
+                continue;
+            }
+
+            String normalizedObjectApiName = normalizeString(incomingSelection.featureObjectApiName);
+            if (!isSupportedWorkLogSourceObject(normalizedObjectApiName)) {
+                result.skippedCount++;
+                result.messages.add(
+                    'Skipped ' + firstNonBlank(normalizedObjectApiName, 'an unsupported record') +
+                    ' because only Site and Segment records can be used to create Work Logs.'
+                );
+                continue;
+            }
+
+            String selectionKey = normalizedObjectApiName + '::' + String.valueOf(incomingSelection.featureRecordId);
+            if (seenSelectionKeys.contains(selectionKey)) {
+                continue;
+            }
+
+            seenSelectionKeys.add(selectionKey);
+
+            BulkWorkLogSelectionRequest normalizedSelection = new BulkWorkLogSelectionRequest();
+            normalizedSelection.featureRecordId = incomingSelection.featureRecordId;
+            normalizedSelection.featureObjectApiName = normalizedObjectApiName;
+            orderedSelections.add(normalizedSelection);
+
+            if (normalizedObjectApiName == SITE_OBJECT_API) {
+                siteIds.add(normalizedSelection.featureRecordId);
+            } else if (normalizedObjectApiName == SEGMENT_OBJECT_API) {
+                segmentIds.add(normalizedSelection.featureRecordId);
+            }
+        }
+
+        result.requestedCount = orderedSelections.size();
+
+        if (orderedSelections.isEmpty()) {
+            return result;
+        }
+
+        Map<Id, sitetracker__Site__c> sitesById = siteIds.isEmpty()
+            ? new Map<Id, sitetracker__Site__c>()
+            : new Map<Id, sitetracker__Site__c>([
+                SELECT
+                    Id,
+                    Name,
+                    Project__c,
+                    Project__r.Name,
+                    Production_Line_Allocation__c,
+                    Production_Line_Allocation__r.Id,
+                    Production_Line_Allocation__r.Name,
+                    Production_Line_Allocation__r.sitetracker__Job__c,
+                    Production_Line_Allocation__r.sitetracker__Activity__c,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__c,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Item__c,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Item__r.Name,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Project__c,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Project__r.Name
+                FROM sitetracker__Site__c
+                WHERE Id IN :siteIds
+            ]);
+
+        Map<Id, sitetracker__Segment__c> segmentsById = segmentIds.isEmpty()
+            ? new Map<Id, sitetracker__Segment__c>()
+            : new Map<Id, sitetracker__Segment__c>([
+                SELECT
+                    Id,
+                    Name,
+                    Project__c,
+                    Project__r.Name,
+                    Production_Line_Allocation__c,
+                    Production_Line_Allocation__r.Id,
+                    Production_Line_Allocation__r.Name,
+                    Production_Line_Allocation__r.sitetracker__Job__c,
+                    Production_Line_Allocation__r.sitetracker__Activity__c,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__c,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Item__c,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Item__r.Name,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Project__c,
+                    Production_Line_Allocation__r.sitetracker__Production_Plan_Line__r.sitetracker__Project__r.Name,
+                    sitetracker__Gis_Segment_Path__c,
+                    sitetracker__st_Total_Length__c
+                FROM sitetracker__Segment__c
+                WHERE Id IN :segmentIds
+            ]);
+
+        List<SObject> workLogsToInsert = new List<SObject>();
+        List<String> workLogSourceLabels = new List<String>();
+
+        for (BulkWorkLogSelectionRequest selection : orderedSelections) {
+            String sourceLabel = buildWorkLogSourceLabel(
+                selection.featureObjectApiName,
+                null,
+                selection.featureRecordId
+            );
+
+            try {
+                WorkLogLaunchResponse workLogContext;
+
+                if (selection.featureObjectApiName == SITE_OBJECT_API) {
+                    sitetracker__Site__c siteRecord = sitesById.get(selection.featureRecordId);
+                    if (siteRecord == null) {
+                        throw handledException('Site was not found.');
+                    }
+
+                    sourceLabel = buildWorkLogSourceLabel(SITE_OBJECT_API, siteRecord.Name, siteRecord.Id);
+                    workLogContext = buildBulkWorkLogContextForSite(siteRecord, request.projectId);
+                } else {
+                    sitetracker__Segment__c segmentRecord = segmentsById.get(selection.featureRecordId);
+                    if (segmentRecord == null) {
+                        throw handledException('Segment was not found.');
+                    }
+
+                    sourceLabel = buildWorkLogSourceLabel(SEGMENT_OBJECT_API, segmentRecord.Name, segmentRecord.Id);
+                    workLogContext = buildBulkWorkLogContextForSegment(segmentRecord, request.projectId);
+                }
+
+                result.eligibleCount++;
+
+                if (workLogContext.warnings != null) {
+                    for (String warning : workLogContext.warnings) {
+                        if (String.isNotBlank(warning)) {
+                            result.messages.add(sourceLabel + ': ' + warning);
+                        }
+                    }
+                }
+
+                workLogsToInsert.add(
+                    buildBulkWorkLogRecord(
+                        workLogContext,
+                        workLogDate,
+                        request.actualResourceId,
+                        request.comments
+                    )
+                );
+                workLogSourceLabels.add(sourceLabel);
+            } catch (Exception ex) {
+                result.skippedCount++;
+                result.messages.add(sourceLabel + ': ' + reduceException(ex));
+            }
+        }
+
+        if (workLogsToInsert.isEmpty()) {
+            return result;
+        }
+
+        Database.SaveResult[] saveResults = Database.insert(workLogsToInsert, false);
+
+        for (Integer index = 0; index < saveResults.size(); index++) {
+            Database.SaveResult saveResult = saveResults[index];
+
+            if (saveResult.isSuccess()) {
+                result.createdCount++;
+                result.createdWorkLogIds.add(String.valueOf(saveResult.getId()));
+            } else {
+                result.skippedCount++;
+                result.messages.add(
+                    'Could not create a Work Log for ' + workLogSourceLabels[index] + ': ' +
+                    reduceSaveErrors(saveResult.getErrors())
+                );
+            }
+        }
+
+        return result;
     }
 
     @AuraEnabled
@@ -625,7 +873,7 @@ public with sharing class ProjectRecordMapController {
                 ).path;
                 addFieldPathIfPresent(selectFieldPaths, coordinatesFieldPath);
 
-                if (objectApiName == WORK_LOG_OBJECT_API) {
+                if (objectApiName == WORK_LOG_OBJECT_API && geometryType == 'polyline') {
                     addFieldPathIfPresent(selectFieldPaths, WORK_LOG_FALLBACK_LAT_FIELD);
                     addFieldPathIfPresent(selectFieldPaths, WORK_LOG_FALLBACK_LNG_FIELD);
                 }
@@ -713,8 +961,10 @@ public with sharing class ProjectRecordMapController {
         feature.name = toDisplayString(recordItem.get('Name'));
         feature.filterValue = getPathValueAsString(recordItem, filterFieldPath);
         feature.styleValue = getPathValueAsString(recordItem, styleFieldPath);
+        feature.productionLineAllocationId = (Id)getPathValue(recordItem, FEATURE_PLA_FIELD);
+        feature.targetObjectApiName = objectApiName;
         feature.canCreateWorkLog = isSupportedWorkLogSourceObject(objectApiName) &&
-            getPathValue(recordItem, FEATURE_PLA_FIELD) != null;
+            feature.productionLineAllocationId != null;
         feature.popupValues = buildPopupValues(recordItem, popupFields);
 
         if (configuredGeometryType == 'point') {
@@ -901,6 +1151,160 @@ public with sharing class ProjectRecordMapController {
         return popupFields;
     }
 
+    private static WorkLogLaunchResponse buildBulkWorkLogContextForSite(
+        sitetracker__Site__c siteRecord,
+        Id requestedProjectId
+    ) {
+        WorkLogLaunchResponse response = new WorkLogLaunchResponse();
+        response.featureRecordId = siteRecord.Id;
+        response.featureObjectApiName = SITE_OBJECT_API;
+        response.featureName = siteRecord.Name;
+        response.siteId = siteRecord.Id;
+        response.statusValue = WORK_LOG_STATUS_DRAFT;
+        response.startDateIso = String.valueOf(Date.today());
+        response.endDateIso = String.valueOf(Date.today());
+        response.defaultValues = new Map<String, String>();
+        response.targetDetailFields = new List<RecordDetailField>();
+        response.formFields = new List<WorkLogFormField>();
+        response.warnings = new List<String>();
+
+        populateWorkLogDefaultsFromFeature(
+            response,
+            requestedProjectId,
+            siteRecord.Project__c,
+            siteRecord.Project__r == null ? null : siteRecord.Project__r.Name,
+            siteRecord.Production_Line_Allocation__c,
+            siteRecord.Production_Line_Allocation__r
+        );
+        applyObjectSpecificWorkLogDefaults(response, SITE_OBJECT_API);
+
+        return response;
+    }
+
+    private static WorkLogLaunchResponse buildBulkWorkLogContextForSegment(
+        sitetracker__Segment__c segmentRecord,
+        Id requestedProjectId
+    ) {
+        WorkLogLaunchResponse response = new WorkLogLaunchResponse();
+        response.featureRecordId = segmentRecord.Id;
+        response.featureObjectApiName = SEGMENT_OBJECT_API;
+        response.featureName = segmentRecord.Name;
+        response.segmentId = segmentRecord.Id;
+        response.segmentGeometryRaw = segmentRecord.sitetracker__Gis_Segment_Path__c;
+        response.segmentTotalLength = segmentRecord.sitetracker__st_Total_Length__c;
+        response.statusValue = WORK_LOG_STATUS_DRAFT;
+        response.startDateIso = String.valueOf(Date.today());
+        response.endDateIso = String.valueOf(Date.today());
+        response.defaultValues = new Map<String, String>();
+        response.targetDetailFields = new List<RecordDetailField>();
+        response.formFields = new List<WorkLogFormField>();
+        response.warnings = new List<String>();
+
+        populateWorkLogDefaultsFromFeature(
+            response,
+            requestedProjectId,
+            segmentRecord.Project__c,
+            segmentRecord.Project__r == null ? null : segmentRecord.Project__r.Name,
+            segmentRecord.Production_Line_Allocation__c,
+            segmentRecord.Production_Line_Allocation__r
+        );
+        applyObjectSpecificWorkLogDefaults(response, SEGMENT_OBJECT_API);
+
+        return response;
+    }
+
+    private static SObject buildBulkWorkLogRecord(
+        WorkLogLaunchResponse context,
+        Date workLogDate,
+        Id actualResourceId,
+        String comments
+    ) {
+        if (context == null) {
+            throw handledException('A Work Log context could not be built.');
+        }
+
+        SObject workLogRecord = getObjectDescribe(WORK_LOG_OBJECT_API).getSObjectType().newSObject();
+
+        workLogRecord.put(WORK_LOG_PROJECT_FIELD, context.projectId);
+        workLogRecord.put(WORK_LOG_PLA_FIELD, context.productionLineAllocationId);
+        workLogRecord.put(WORK_LOG_PPL_FIELD, context.productionPlanLineId);
+        workLogRecord.put(WORK_LOG_SERVICE_FIELD, context.serviceId);
+        workLogRecord.put(WORK_LOG_STATUS_FIELD, firstNonBlank(context.statusValue, WORK_LOG_STATUS_DRAFT));
+        workLogRecord.put(WORK_LOG_START_DATE_FIELD, workLogDate);
+        workLogRecord.put(WORK_LOG_END_DATE_FIELD, workLogDate);
+        workLogRecord.put(WORK_LOG_BULK_CREATED_FIELD, true);
+
+        if (context.jobId != null) {
+            workLogRecord.put(WORK_LOG_JOB_FIELD, context.jobId);
+        }
+        if (context.activityId != null) {
+            workLogRecord.put(WORK_LOG_ACTIVITY_FIELD, context.activityId);
+        }
+        if (actualResourceId != null) {
+            workLogRecord.put(WORK_LOG_ACTUAL_RESOURCE_FIELD, actualResourceId);
+        }
+        if (String.isNotBlank(comments)) {
+            workLogRecord.put(WORK_LOG_COMMENTS_FIELD, comments);
+        }
+
+        if (context.siteId != null) {
+            workLogRecord.put(WORK_LOG_SITE_FIELD, context.siteId);
+
+            if (String.isNotBlank(context.quantityFieldApiName)) {
+                workLogRecord.put(context.quantityFieldApiName, Decimal.valueOf('1'));
+            }
+        }
+
+        if (context.segmentId != null) {
+            workLogRecord.put(WORK_LOG_SEGMENT_FIELD, context.segmentId);
+
+            if (String.isNotBlank(context.segmentGeometryRaw)) {
+                workLogRecord.put(WORK_LOG_GIS_PATH_FIELD, context.segmentGeometryRaw);
+            }
+
+            if (String.isNotBlank(context.quantityFieldApiName) && context.segmentTotalLength != null) {
+                workLogRecord.put(
+                    context.quantityFieldApiName,
+                    roundQuantityToTwoDecimalPlaces(context.segmentTotalLength)
+                );
+            }
+        }
+
+        return workLogRecord;
+    }
+
+    private static Decimal roundQuantityToTwoDecimalPlaces(Decimal value) {
+        return value == null ? null : value.setScale(2);
+    }
+
+    private static String buildWorkLogSourceLabel(
+        String objectApiName,
+        String recordName,
+        Id recordId
+    ) {
+        String typeLabel = objectApiName == SITE_OBJECT_API
+            ? 'Site'
+            : (objectApiName == SEGMENT_OBJECT_API ? 'Segment' : 'Record');
+
+        return typeLabel + ' ' + firstNonBlank(recordName, recordId == null ? null : String.valueOf(recordId));
+    }
+
+    private static String reduceSaveErrors(Database.Error[] errors) {
+        if (errors == null || errors.isEmpty()) {
+            return 'Unknown error.';
+        }
+
+        List<String> messages = new List<String>();
+
+        for (Database.Error errorItem : errors) {
+            if (errorItem != null && String.isNotBlank(errorItem.getMessage())) {
+                messages.add(errorItem.getMessage());
+            }
+        }
+
+        return messages.isEmpty() ? 'Unknown error.' : String.join(messages, '; ');
+    }
+
     private static void populateWorkLogDefaultsFromFeature(
         WorkLogLaunchResponse response,
         Id requestedProjectId,
@@ -1078,14 +1482,16 @@ public with sharing class ProjectRecordMapController {
 
             if (fieldApiName.contains('.')) {
                 warnings.add(
-                    'Skipped field set entry "' + fieldApiName + '" because relationship paths are not supported in the summary display.'
+                    'Skipped field set entry "' + fieldApiName +
+                    '" because relationship paths are not supported in the summary display.'
                 );
                 continue;
             }
 
             if (!fieldMap.containsKey(fieldApiName)) {
                 warnings.add(
-                    'Skipped field set entry "' + fieldApiName + '" because the field was not found on ' + objectApiName + '.'
+                    'Skipped field set entry "' + fieldApiName +
+                    '" because the field was not found on ' + objectApiName + '.'
                 );
                 continue;
             }
@@ -1136,14 +1542,16 @@ public with sharing class ProjectRecordMapController {
 
             if (fieldApiName.contains('.')) {
                 warnings.add(
-                    'Skipped field set entry "' + fieldApiName + '" because relationship paths are not supported in the create form.'
+                    'Skipped field set entry "' + fieldApiName +
+                    '" because relationship paths are not supported in the create form.'
                 );
                 continue;
             }
 
             if (!fieldMap.containsKey(fieldApiName)) {
                 warnings.add(
-                    'Skipped field set entry "' + fieldApiName + '" because the field was not found on ' + objectApiName + '.'
+                    'Skipped field set entry "' + fieldApiName +
+                    '" because the field was not found on ' + objectApiName + '.'
                 );
                 continue;
             }
