@@ -68,7 +68,8 @@
   top: calc(100% + 0.45rem);
   right: 0;
   z-index: 25;
-  width: min(22rem, 75vw);
+  width: min(24rem, calc(100vw - 1rem));
+  max-width: calc(100vw - 1rem);
   display: flex;
   flex-direction: column;
   gap: 0.55rem;
@@ -77,6 +78,7 @@
   background: #ffffff;
   box-shadow: 0 10px 28px rgb(0 0 0 / 14%);
   padding: 0.7rem;
+  transform-origin: top right;
 }
 
 .layer-add-menu-open {
@@ -95,6 +97,15 @@
   font-weight: 700;
   line-height: 1.2;
   color: #181818;
+}
+
+.layer-add-menu-search {
+  display: block;
+}
+
+.layer-add-menu-search lightning-input {
+  display: block;
+  --slds-c-input-radius-border: 0.45rem;
 }
 
 .layer-add-menu-list {
@@ -124,6 +135,16 @@
 
 .layer-add-menu-row-action {
   flex: 0 0 auto;
+}
+
+.layer-add-menu-empty {
+  border: 1px dashed #d8dde6;
+  border-radius: 0.5rem;
+  background: #fafaf9;
+  color: #5c5c5c;
+  font-size: 0.74rem;
+  line-height: 1.4;
+  padding: 0.75rem 0.8rem;
 }
 
 .layer-card {
@@ -261,6 +282,20 @@
   box-shadow: 0 0 0 2px rgb(1 118 211 / 14%);
 }
 
+.layer-icon-button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  box-shadow: none;
+}
+
+.layer-icon-button:disabled:hover,
+.layer-icon-button:disabled:focus {
+  border-color: #d8dde6;
+  background: #ffffff;
+  box-shadow: none;
+  outline: none;
+}
+
 .layer-icon-button lightning-icon {
   --slds-c-icon-color-foreground-default: #5c5c5c;
 }
@@ -268,6 +303,26 @@
 .layer-icon-button:hover lightning-icon,
 .layer-icon-button:focus lightning-icon {
   --slds-c-icon-color-foreground-default: #0176d3;
+}
+
+.layer-icon-button:disabled lightning-icon {
+  --slds-c-icon-color-foreground-default: #a9a9a9;
+}
+
+.layer-icon-button-destructive lightning-icon {
+  --slds-c-icon-color-foreground-default: #ba0517;
+}
+
+.layer-icon-button-destructive:hover,
+.layer-icon-button-destructive:focus {
+  border-color: #ba0517;
+  background: #fef1ee;
+  box-shadow: 0 0 0 2px rgb(186 5 23 / 12%);
+}
+
+.layer-icon-button-destructive:hover lightning-icon,
+.layer-icon-button-destructive:focus lightning-icon {
+  --slds-c-icon-color-foreground-default: #ba0517;
 }
 
 .layer-filter-summary-row {
@@ -452,6 +507,7 @@
   }
 
   .layer-add-menu {
-    width: min(20rem, calc(100vw - 2rem));
+    width: min(20rem, calc(100vw - 1rem));
+    max-width: calc(100vw - 1rem);
   }
 }
