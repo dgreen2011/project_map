@@ -247,12 +247,14 @@
 .map-root.lasso-mode-active .leaflet-control a,
 .map-root.lasso-mode-active .leaflet-bar,
 .map-root.lasso-mode-active .leaflet-bar a,
+.map-root.lasso-mode-active .leaflet-bar button,
 .map-root.lasso-mode-active .leaflet-pane.leaflet-tile-pane {
   pointer-events: auto !important;
 }
 
 .map-root.lasso-mode-active .leaflet-control a,
-.map-root.lasso-mode-active .leaflet-bar a {
+.map-root.lasso-mode-active .leaflet-bar a,
+.map-root.lasso-mode-active .leaflet-bar button {
   cursor: pointer !important;
 }
 
@@ -444,9 +446,65 @@
 }
 
 .map-root .leaflet-control a,
-.map-root .leaflet-bar a {
+.map-root .leaflet-bar a,
+.map-root .leaflet-bar button {
   position: relative;
   z-index: 21 !important;
+}
+
+/* Bottom-right map controls: basemap button sits to the left of zoom */
+.map-root .leaflet-bottom.leaflet-right {
+  display: flex;
+  flex-direction: row-reverse;
+  align-items: flex-end;
+  gap: 0.45rem;
+  right: 0.7rem;
+  bottom: 0.7rem;
+}
+
+.map-root .leaflet-bottom.leaflet-right .leaflet-control {
+  margin: 0 !important;
+}
+
+.map-root .leaflet-bottom.leaflet-right .leaflet-control-zoom {
+  border: 1px solid #d8dde6;
+  border-radius: 0.45rem;
+  overflow: hidden;
+  box-shadow: 0 2px 8px rgb(0 0 0 / 10%);
+}
+
+.map-root .leaflet-bottom.leaflet-right .leaflet-control-zoom a {
+  width: 2.25rem;
+  height: 2.25rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgb(255 255 255 / 96%);
+  color: #2f3e5c;
+  border-color: #d8dde6;
+  box-sizing: border-box;
+}
+
+.map-root .leaflet-bottom.leaflet-right .leaflet-control-zoom a:hover,
+.map-root .leaflet-bottom.leaflet-right .leaflet-control-zoom a:focus {
+  background: #ffffff;
+  color: #0176d3;
+}
+
+.map-root .leaflet-bottom.leaflet-right .leaflet-control-zoom a:first-child {
+  border-bottom: 1px solid #d8dde6;
+}
+
+.map-root .leaflet-bottom.leaflet-right .leaflet-bar button {
+  appearance: none;
+  font: inherit;
+  outline: none;
+}
+
+.map-root .leaflet-bottom.leaflet-right .leaflet-bar button:hover,
+.map-root .leaflet-bottom.leaflet-right .leaflet-bar button:focus {
+  background: #ffffff !important;
+  color: #0176d3 !important;
 }
 
 @media (max-width: 1100px) {
@@ -512,5 +570,11 @@
 
   .map-popout-body {
     padding: 0.65rem;
+  }
+
+  .map-root .leaflet-bottom.leaflet-right {
+    gap: 0.35rem;
+    right: 0.6rem;
+    bottom: 0.6rem;
   }
 }
