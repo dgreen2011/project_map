@@ -80,8 +80,6 @@ public with sharing class ProjectRecordMapController {
         @AuraEnabled public String relationshipFieldPath { get; set; }
         @AuraEnabled public String relationshipFieldSource { get; set; }
 
-        // Retained for backward compatibility. The first configured filter field, if any,
-        // is also populated here.
         @AuraEnabled public String filterFieldPath { get; set; }
         @AuraEnabled public String filterFieldLabel { get; set; }
         @AuraEnabled public String filterFieldSource { get; set; }
@@ -147,8 +145,6 @@ public with sharing class ProjectRecordMapController {
         @AuraEnabled public Decimal longitude { get; set; }
         @AuraEnabled public String geometrySourceFieldPath { get; set; }
 
-        // Retained for backward compatibility. The first configured filter value, if any,
-        // is also populated here.
         @AuraEnabled public String filterValue { get; set; }
         @AuraEnabled public List<FeatureFilterValue> filterValues { get; set; }
 
@@ -293,6 +289,28 @@ public with sharing class ProjectRecordMapController {
         ) {
             this.fieldDescribe = fieldDescribe;
             this.relatedDescribe = relatedDescribe;
+        }
+    }
+
+    private class FieldPathCandidate {
+        public String rawPath;
+        public String source;
+
+        public FieldPathCandidate(String rawPath, String source) {
+            this.rawPath = rawPath;
+            this.source = source;
+        }
+    }
+
+    private class ResolvedFieldPathWithSource {
+        public String path;
+        public String label;
+        public String source;
+
+        public ResolvedFieldPathWithSource(String path, String label, String source) {
+            this.path = path;
+            this.label = label;
+            this.source = source;
         }
     }
 
@@ -814,31 +832,15 @@ public with sharing class ProjectRecordMapController {
             layer.objectApiName = objectApiName;
             layer.geometryType = geometryType;
 
-            String relationshipPathRaw = firstNonBlank(
-                slot.relationshipFieldPathOverride,
-                mapLayer.sitetracker__Relationship_to_Use__c,
-                mapLayer.sitetracker__Relationship__c
-            );
-
-            if (String.isBlank(relationshipPathRaw)) {
-                throw handledException(
-                    'No Project relationship field was provided for layer "' + mapLayer.Name + '".'
-                );
-            }
-
-            layer.relationshipFieldSource =
-                !String.isBlank(slot.relationshipFieldPathOverride)
-                    ? 'componentOverride'
-                    : (!String.isBlank(mapLayer.sitetracker__Relationship_to_Use__c)
-                        ? 'mapLayer.relationshipToUse'
-                        : 'mapLayer.relationship');
-
-            ResolvedFieldPath relationshipField = validateFieldPath(
+            ResolvedFieldPathWithSource relationshipField = resolveProjectLookupFieldPath(
+                slot,
+                mapLayer,
+                mapObjectConfig,
                 objectApiName,
-                relationshipPathRaw,
-                'Project relationship field'
+                layer.warnings
             );
             layer.relationshipFieldPath = relationshipField.path;
+            layer.relationshipFieldSource = relationshipField.source;
 
             StyleConfig styleConfig = parseStyleConfig(
                 mapLayer.sitetracker__Layer_Styling__c,
@@ -912,14 +914,19 @@ public with sharing class ProjectRecordMapController {
                 addFieldPathIfPresent(selectFieldPaths, latitudeFieldPath);
                 addFieldPathIfPresent(selectFieldPaths, longitudeFieldPath);
             } else {
-                coordinatesFieldPath = validateFieldPath(
+                coordinatesFieldPath = resolveCoordinatesFieldPath(
                     objectApiName,
-                    mapObjectConfig.sitetracker__Coordinates_Field__c,
-                    'Coordinates field'
-                ).path;
+                    mapObjectConfig,
+                    layer.warnings
+                );
                 addFieldPathIfPresent(selectFieldPaths, coordinatesFieldPath);
 
+                if (objectApiName == SEGMENT_OBJECT_API) {
+                    addFieldPathIfPresent(selectFieldPaths, SEGMENT_GEOMETRY_FIELD_API);
+                }
+
                 if (objectApiName == WORK_LOG_OBJECT_API && geometryType == 'polyline') {
+                    addFieldPathIfPresent(selectFieldPaths, WORK_LOG_GIS_PATH_FIELD);
                     addFieldPathIfPresent(selectFieldPaths, WORK_LOG_FALLBACK_LAT_FIELD);
                     addFieldPathIfPresent(selectFieldPaths, WORK_LOG_FALLBACK_LNG_FIELD);
                 }
@@ -988,6 +995,134 @@ public with sharing class ProjectRecordMapController {
         return layer;
     }
 
+    private static ResolvedFieldPathWithSource resolveProjectLookupFieldPath(
+        RequestedLayerSlot slot,
+        sitetracker__Map_Layer__c mapLayer,
+        sitetracker__Map_Object_Configuration__c mapObjectConfig,
+        String objectApiName,
+        List<String> warnings
+    ) {
+        List<FieldPathCandidate> candidates = new List<FieldPathCandidate>();
+
+        if (String.isNotBlank(slot.relationshipFieldPathOverride)) {
+            candidates.add(new FieldPathCandidate(
+                slot.relationshipFieldPathOverride,
+                'componentOverride'
+            ));
+        }
+        if (String.isNotBlank(mapObjectConfig.Project_Lookup__c)) {
+            candidates.add(new FieldPathCandidate(
+                mapObjectConfig.Project_Lookup__c,
+                'mapObjectConfiguration.projectLookup'
+            ));
+        }
+        if (String.isNotBlank(mapLayer.sitetracker__Relationship_to_Use__c)) {
+            candidates.add(new FieldPathCandidate(
+                mapLayer.sitetracker__Relationship_to_Use__c,
+                'mapLayer.relationshipToUse'
+            ));
+        }
+        if (String.isNotBlank(mapLayer.sitetracker__Relationship__c)) {
+            candidates.add(new FieldPathCandidate(
+                mapLayer.sitetracker__Relationship__c,
+                'mapLayer.relationship'
+            ));
+        }
+
+        if (candidates.isEmpty()) {
+            throw handledException(
+                'No Project relationship field was provided for layer "' + mapLayer.Name + '".'
+            );
+        }
+
+        return resolveFirstValidFieldPath(
+            objectApiName,
+            candidates,
+            'Project relationship field',
+            warnings
+        );
+    }
+
+    private static String resolveCoordinatesFieldPath(
+        String objectApiName,
+        sitetracker__Map_Object_Configuration__c mapObjectConfig,
+        List<String> warnings
+    ) {
+        List<FieldPathCandidate> candidates = new List<FieldPathCandidate>();
+
+        if (String.isNotBlank(mapObjectConfig.sitetracker__Coordinates_Field__c)) {
+            candidates.add(new FieldPathCandidate(
+                mapObjectConfig.sitetracker__Coordinates_Field__c,
+                'mapObjectConfiguration.coordinatesField'
+            ));
+        }
+
+        if (objectApiName == SEGMENT_OBJECT_API) {
+            candidates.add(new FieldPathCandidate(
+                SEGMENT_GEOMETRY_FIELD_API,
+                'segment.standardGeometryFallback'
+            ));
+        }
+
+        if (objectApiName == WORK_LOG_OBJECT_API) {
+            candidates.add(new FieldPathCandidate(
+                WORK_LOG_GIS_PATH_FIELD,
+                'workLog.standardGeometryFallback'
+            ));
+        }
+
+        ResolvedFieldPathWithSource resolved = resolveFirstValidFieldPath(
+            objectApiName,
+            candidates,
+            'Coordinates field',
+            warnings
+        );
+
+        return resolved.path;
+    }
+
+    private static ResolvedFieldPathWithSource resolveFirstValidFieldPath(
+        String objectApiName,
+        List<FieldPathCandidate> candidates,
+        String fieldLabel,
+        List<String> warnings
+    ) {
+        Set<String> seenPaths = new Set<String>();
+
+        for (FieldPathCandidate candidate : candidates) {
+            String normalizedCandidatePath = normalizeString(candidate.rawPath);
+
+            if (String.isBlank(normalizedCandidatePath) || seenPaths.contains(normalizedCandidatePath)) {
+                continue;
+            }
+
+            seenPaths.add(normalizedCandidatePath);
+
+            try {
+                ResolvedFieldPath resolvedField = validateFieldPath(
+                    objectApiName,
+                    normalizedCandidatePath,
+                    fieldLabel
+                );
+
+                return new ResolvedFieldPathWithSource(
+                    resolvedField.path,
+                    resolvedField.label,
+                    candidate.source
+                );
+            } catch (Exception ex) {
+                if (warnings != null) {
+                    warnings.add(
+                        'Skipped ' + candidate.source + ' value "' + normalizedCandidatePath +
+                        '" for ' + fieldLabel + ': ' + reduceException(ex)
+                    );
+                }
+            }
+        }
+
+        throw handledException(fieldLabel + ' could not be resolved on ' + objectApiName + '.');
+    }
+
     private static Map<Id, sitetracker__Map_Layer__c> queryMapLayersById(Set<Id> mapLayerIds) {
         if (mapLayerIds == null || mapLayerIds.isEmpty()) {
             return new Map<Id, sitetracker__Map_Layer__c>();
@@ -1007,6 +1142,7 @@ public with sharing class ProjectRecordMapController {
                 sitetracker__Map_Object_Configuration__c,
                 sitetracker__Map_Object_Configuration__r.Id,
                 sitetracker__Map_Object_Configuration__r.Name,
+                sitetracker__Map_Object_Configuration__r.Project_Lookup__c,
                 sitetracker__Map_Object_Configuration__r.sitetracker__Map_Object__c,
                 sitetracker__Map_Object_Configuration__r.sitetracker__Geometry_Type__c,
                 sitetracker__Map_Object_Configuration__r.sitetracker__Coordinates_Field__c,
@@ -1032,6 +1168,7 @@ public with sharing class ProjectRecordMapController {
                 sitetracker__Map_Object_Configuration__c,
                 sitetracker__Map_Object_Configuration__r.Id,
                 sitetracker__Map_Object_Configuration__r.Name,
+                sitetracker__Map_Object_Configuration__r.Project_Lookup__c,
                 sitetracker__Map_Object_Configuration__r.sitetracker__Map_Object__c,
                 sitetracker__Map_Object_Configuration__r.sitetracker__Geometry_Type__c,
                 sitetracker__Map_Object_Configuration__r.sitetracker__Coordinates_Field__c,
@@ -1103,11 +1240,28 @@ public with sharing class ProjectRecordMapController {
         }
 
         String geometryRaw = getPathValueAsString(recordItem, coordinatesFieldPath);
+        String geometrySourceFieldPath = coordinatesFieldPath;
+
+        if (String.isBlank(geometryRaw) && objectApiName == SEGMENT_OBJECT_API) {
+            String segmentFallbackGeometry = getPathValueAsString(recordItem, SEGMENT_GEOMETRY_FIELD_API);
+            if (String.isNotBlank(segmentFallbackGeometry)) {
+                geometryRaw = segmentFallbackGeometry;
+                geometrySourceFieldPath = SEGMENT_GEOMETRY_FIELD_API;
+            }
+        }
+
+        if (String.isBlank(geometryRaw) && objectApiName == WORK_LOG_OBJECT_API) {
+            String workLogFallbackGeometry = getPathValueAsString(recordItem, WORK_LOG_GIS_PATH_FIELD);
+            if (String.isNotBlank(workLogFallbackGeometry)) {
+                geometryRaw = workLogFallbackGeometry;
+                geometrySourceFieldPath = WORK_LOG_GIS_PATH_FIELD;
+            }
+        }
 
         if (String.isNotBlank(geometryRaw)) {
             feature.geometryType = configuredGeometryType;
             feature.geometryRaw = geometryRaw;
-            feature.geometrySourceFieldPath = coordinatesFieldPath;
+            feature.geometrySourceFieldPath = geometrySourceFieldPath;
             return feature;
         }
 
