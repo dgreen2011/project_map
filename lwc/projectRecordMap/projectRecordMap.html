@@ -59,7 +59,7 @@
 
         <template if:true={showNoSelectedLayers}>
           <div class="message message-info">
-            Add one or more layers from the left panel to display them on the map.
+            Add one or more layers from the Layers panel to display them on the map.
           </div>
         </template>
 
@@ -71,186 +71,20 @@
 
         <div class={contentGridClass}>
           <template if:true={showSidePanel}>
-            <div class="side-panel">
-              <div class="side-panel-header">
-                <div class="side-panel-heading">Layers</div>
-
-                <lightning-button-icon
-                  icon-name={sidebarToggleIconName}
-                  alternative-text={sidebarToggleTitle}
-                  title={sidebarToggleTitle}
-                  onclick={handleToggleSidebar}
-                  disabled={isLoading}
-                ></lightning-button-icon>
-              </div>
-
-              <template if:true={hasSelectedLayers}>
-                <div class="side-panel-section">
-                  <div class="side-panel-section-heading">Shown in Pane</div>
-
-                  <template for:each={uiLayers} for:item="layer">
-                    <section key={layer.mapLayerId} class="layer-card">
-                      <div class="layer-card-header">
-                        <div class="layer-card-title-wrap">
-                          <div class="layer-card-title-row">
-                            <div class="layer-card-title">{layer.mapLayerName}</div>
-
-                            <template if:true={layer.isDefaultSelected}>
-                              <span class="layer-default-badge">Default</span>
-                            </template>
-                          </div>
-
-                          <div class="layer-card-subtitle">
-                            {layer.visibleFeatureCount} visible feature(s)
-                          </div>
-                        </div>
-
-                        <div class="layer-card-actions">
-                          <template if:true={layer.hasFilterControl}>
-                            <button
-                              class="layer-icon-button"
-                              type="button"
-                              data-layer-id={layer.mapLayerId}
-                              data-filter-trigger="true"
-                              onclick={handleToggleFilterPanel}
-                              title="Adjust layer filters"
-                              aria-label="Adjust layer filters"
-                            >
-                              <lightning-icon
-                                icon-name="utility:filterList"
-                                size="x-small"
-                                alternative-text="Filters"
-                              ></lightning-icon>
-                            </button>
-                          </template>
-
-                          <button
-                            class="layer-visibility-button layer-visibility-button-visible"
-                            type="button"
-                            data-layer-id={layer.mapLayerId}
-                            onclick={handleRemoveLayerFromPane}
-                            title="Remove layer from pane"
-                            aria-label="Remove layer from pane"
-                          >
-                            Remove
-                          </button>
-                        </div>
-                      </div>
-
-                      <template if:true={layer.hasFilterControl}>
-                        <div class="layer-filter-summary-row">
-                          <div class="layer-filter-summary-label">Filters</div>
-                          <div class="layer-filter-summary-value">{layer.filterSummaryText}</div>
-                        </div>
-                      </template>
-
-                      <template if:true={layer.hasError}>
-                        <div class="message message-error layer-inline-message">
-                          <div class="message-title">Layer Error</div>
-                          <div>{layer.errorMessage}</div>
-                        </div>
-                      </template>
-
-                      <template if:true={layer.hasWarnings}>
-                        <div class="warning-list">
-                          <template for:each={layer.warnings} for:item="warning">
-                            <div key={warning} class="message message-warning layer-inline-message">
-                              <div>{warning}</div>
-                            </div>
-                          </template>
-                        </div>
-                      </template>
-
-                      <template if:true={layer.isFilterPanelOpen}>
-                        <div class="layer-filter-panel" data-filter-panel="true">
-                          <div class="layer-filter-panel-header">
-                            <div class="layer-filter-panel-title">Layer Filters</div>
-
-                            <button
-                              class="layer-filter-clear-button"
-                              type="button"
-                              data-layer-id={layer.mapLayerId}
-                              onclick={handleClearLayerFilters}
-                              title="Clear all filters"
-                              aria-label="Clear all filters"
-                            >
-                              Clear
-                            </button>
-                          </div>
-
-                          <template for:each={layer.filterFields} for:item="filterField">
-                            <template if:true={filterField.hasOptions}>
-                              <section key={filterField.fieldPath} class="layer-filter-group">
-                                <div class="layer-filter-group-header">
-                                  <div class="layer-filter-field-label">{filterField.fieldLabel}</div>
-
-                                  <template if:true={filterField.hasSelectedValues}>
-                                    <div class="layer-filter-field-summary">
-                                      {filterField.selectedSummaryText}
-                                    </div>
-                                  </template>
-                                </div>
-
-                                <div class="layer-filter-option-list">
-                                  <template for:each={filterField.options} for:item="option">
-                                    <label key={option.value} class="layer-filter-option">
-                                      <input
-                                        type="checkbox"
-                                        checked={option.checked}
-                                        data-layer-id={layer.mapLayerId}
-                                        data-field-path={filterField.fieldPath}
-                                        data-value={option.value}
-                                        onchange={handleLayerFilterOptionChange}
-                                      />
-                                      <span>{option.label}</span>
-                                    </label>
-                                  </template>
-                                </div>
-                              </section>
-                            </template>
-                          </template>
-                        </div>
-                      </template>
-                    </section>
-                  </template>
-                </div>
-              </template>
-
-              <template if:true={hasAvailableLayersToAdd}>
-                <div class="side-panel-section">
-                  <div class="side-panel-section-heading">Available to Add</div>
-
-                  <template for:each={availableLayersToAdd} for:item="layer">
-                    <section key={layer.mapLayerId} class="layer-card layer-card-available">
-                      <div class="layer-card-header">
-                        <div class="layer-card-title-wrap">
-                          <div class="layer-card-title-row">
-                            <div class="layer-card-title">{layer.mapLayerName}</div>
-
-                            <template if:true={layer.isDefaultSelected}>
-                              <span class="layer-default-badge">Default</span>
-                            </template>
-                          </div>
-                        </div>
-
-                        <div class="layer-card-actions">
-                          <button
-                            class="layer-visibility-button layer-visibility-button-hidden"
-                            type="button"
-                            data-layer-id={layer.mapLayerId}
-                            onclick={handleAddLayerToPane}
-                            title="Add layer to pane"
-                            aria-label="Add layer to pane"
-                          >
-                            Add
-                          </button>
-                        </div>
-                      </div>
-                    </section>
-                  </template>
-                </div>
-              </template>
-            </div>
+            <c-project-record-map-layer-panel
+              variant="inline"
+              layers={uiLayers}
+              available-layers={availableLayersToAdd}
+              loading={isLoading}
+              sidebar-toggle-icon-name={sidebarToggleIconName}
+              sidebar-toggle-title={sidebarToggleTitle}
+              onsidebartoggle={handleToggleSidebar}
+              onaddlayer={handleAddLayerToPane}
+              onremovelayer={handleRemoveLayerFromPane}
+              ontogglefilterpanel={handleToggleFilterPanel}
+              onclearlayerfilters={handleClearLayerFilters}
+              onlayerfilteroptionchange={handleLayerFilterOptionChange}
+            ></c-project-record-map-layer-panel>
           </template>
 
           <template if:true={showInlineMapPanel}>
@@ -341,186 +175,20 @@
         <div class="map-popout-body">
           <div class={mapPopoutContentGridClass}>
             <template if:true={showSidePanelInPopout}>
-              <div class="side-panel side-panel-popout">
-                <div class="side-panel-header">
-                  <div class="side-panel-heading">Layers</div>
-
-                  <lightning-button-icon
-                    icon-name={sidebarToggleIconName}
-                    alternative-text={sidebarToggleTitle}
-                    title={sidebarToggleTitle}
-                    onclick={handleToggleSidebar}
-                    disabled={isLoading}
-                  ></lightning-button-icon>
-                </div>
-
-                <template if:true={hasSelectedLayers}>
-                  <div class="side-panel-section">
-                    <div class="side-panel-section-heading">Shown in Pane</div>
-
-                    <template for:each={uiLayers} for:item="layer">
-                      <section key={layer.mapLayerId} class="layer-card">
-                        <div class="layer-card-header">
-                          <div class="layer-card-title-wrap">
-                            <div class="layer-card-title-row">
-                              <div class="layer-card-title">{layer.mapLayerName}</div>
-
-                              <template if:true={layer.isDefaultSelected}>
-                                <span class="layer-default-badge">Default</span>
-                              </template>
-                            </div>
-
-                            <div class="layer-card-subtitle">
-                              {layer.visibleFeatureCount} visible feature(s)
-                            </div>
-                          </div>
-
-                          <div class="layer-card-actions">
-                            <template if:true={layer.hasFilterControl}>
-                              <button
-                                class="layer-icon-button"
-                                type="button"
-                                data-layer-id={layer.mapLayerId}
-                                data-filter-trigger="true"
-                                onclick={handleToggleFilterPanel}
-                                title="Adjust layer filters"
-                                aria-label="Adjust layer filters"
-                              >
-                                <lightning-icon
-                                  icon-name="utility:filterList"
-                                  size="x-small"
-                                  alternative-text="Filters"
-                                ></lightning-icon>
-                              </button>
-                            </template>
-
-                            <button
-                              class="layer-visibility-button layer-visibility-button-visible"
-                              type="button"
-                              data-layer-id={layer.mapLayerId}
-                              onclick={handleRemoveLayerFromPane}
-                              title="Remove layer from pane"
-                              aria-label="Remove layer from pane"
-                            >
-                              Remove
-                            </button>
-                          </div>
-                        </div>
-
-                        <template if:true={layer.hasFilterControl}>
-                          <div class="layer-filter-summary-row">
-                            <div class="layer-filter-summary-label">Filters</div>
-                            <div class="layer-filter-summary-value">{layer.filterSummaryText}</div>
-                          </div>
-                        </template>
-
-                        <template if:true={layer.hasError}>
-                          <div class="message message-error layer-inline-message">
-                            <div class="message-title">Layer Error</div>
-                            <div>{layer.errorMessage}</div>
-                          </div>
-                        </template>
-
-                        <template if:true={layer.hasWarnings}>
-                          <div class="warning-list">
-                            <template for:each={layer.warnings} for:item="warning">
-                              <div key={warning} class="message message-warning layer-inline-message">
-                                <div>{warning}</div>
-                              </div>
-                            </template>
-                          </div>
-                        </template>
-
-                        <template if:true={layer.isFilterPanelOpen}>
-                          <div class="layer-filter-panel" data-filter-panel="true">
-                            <div class="layer-filter-panel-header">
-                              <div class="layer-filter-panel-title">Layer Filters</div>
-
-                              <button
-                                class="layer-filter-clear-button"
-                                type="button"
-                                data-layer-id={layer.mapLayerId}
-                                onclick={handleClearLayerFilters}
-                                title="Clear all filters"
-                                aria-label="Clear all filters"
-                              >
-                                Clear
-                              </button>
-                            </div>
-
-                            <template for:each={layer.filterFields} for:item="filterField">
-                              <template if:true={filterField.hasOptions}>
-                                <section key={filterField.fieldPath} class="layer-filter-group">
-                                  <div class="layer-filter-group-header">
-                                    <div class="layer-filter-field-label">{filterField.fieldLabel}</div>
-
-                                    <template if:true={filterField.hasSelectedValues}>
-                                      <div class="layer-filter-field-summary">
-                                        {filterField.selectedSummaryText}
-                                      </div>
-                                    </template>
-                                  </div>
-
-                                  <div class="layer-filter-option-list">
-                                    <template for:each={filterField.options} for:item="option">
-                                      <label key={option.value} class="layer-filter-option">
-                                        <input
-                                          type="checkbox"
-                                          checked={option.checked}
-                                          data-layer-id={layer.mapLayerId}
-                                          data-field-path={filterField.fieldPath}
-                                          data-value={option.value}
-                                          onchange={handleLayerFilterOptionChange}
-                                        />
-                                        <span>{option.label}</span>
-                                      </label>
-                                    </template>
-                                  </div>
-                                </section>
-                              </template>
-                            </template>
-                          </div>
-                        </template>
-                      </section>
-                    </template>
-                  </div>
-                </template>
-
-                <template if:true={hasAvailableLayersToAdd}>
-                  <div class="side-panel-section">
-                    <div class="side-panel-section-heading">Available to Add</div>
-
-                    <template for:each={availableLayersToAdd} for:item="layer">
-                      <section key={layer.mapLayerId} class="layer-card layer-card-available">
-                        <div class="layer-card-header">
-                          <div class="layer-card-title-wrap">
-                            <div class="layer-card-title-row">
-                              <div class="layer-card-title">{layer.mapLayerName}</div>
-
-                              <template if:true={layer.isDefaultSelected}>
-                                <span class="layer-default-badge">Default</span>
-                              </template>
-                            </div>
-                          </div>
-
-                          <div class="layer-card-actions">
-                            <button
-                              class="layer-visibility-button layer-visibility-button-hidden"
-                              type="button"
-                              data-layer-id={layer.mapLayerId}
-                              onclick={handleAddLayerToPane}
-                              title="Add layer to pane"
-                              aria-label="Add layer to pane"
-                            >
-                              Add
-                            </button>
-                          </div>
-                        </div>
-                      </section>
-                    </template>
-                  </div>
-                </template>
-              </div>
+              <c-project-record-map-layer-panel
+                variant="popout"
+                layers={uiLayers}
+                available-layers={availableLayersToAdd}
+                loading={isLoading}
+                sidebar-toggle-icon-name={sidebarToggleIconName}
+                sidebar-toggle-title={sidebarToggleTitle}
+                onsidebartoggle={handleToggleSidebar}
+                onaddlayer={handleAddLayerToPane}
+                onremovelayer={handleRemoveLayerFromPane}
+                ontogglefilterpanel={handleToggleFilterPanel}
+                onclearlayerfilters={handleClearLayerFilters}
+                onlayerfilteroptionchange={handleLayerFilterOptionChange}
+              ></c-project-record-map-layer-panel>
             </template>
 
             <div class="map-panel map-panel-popout">
