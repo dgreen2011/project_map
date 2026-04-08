@@ -3,7 +3,7 @@
     <apiVersion>63.0</apiVersion>
     <isExposed>true</isExposed>
     <masterLabel>Project Record Map</masterLabel>
-    <description>Displays Sitetracker Map Layers on a Project record page with runtime layer selection, default layers, multi-field filters, and Work Log creation.</description>
+    <description>Displays Sitetracker Map Layers on a Project record page with runtime layer selection, panel visibility controls, multi-field filters, satellite/terrain basemap switching, and Work Log creation.</description>
 
     <targets>
         <target>lightning__RecordPage</target>
