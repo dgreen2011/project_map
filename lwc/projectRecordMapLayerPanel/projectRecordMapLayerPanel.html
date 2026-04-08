@@ -1,0 +1,202 @@
+<template>
+  <aside class={sidePanelClass} onkeydown={handlePanelKeydown}>
+    <div class="side-panel-header">
+      <div class="side-panel-heading">Layers</div>
+
+      <div class="side-panel-header-actions">
+        <div class="layer-add-menu-wrap">
+          <lightning-button-icon
+            icon-name={addLayersButtonIconName}
+            alternative-text={addLayersButtonTitle}
+            title={addLayersButtonTitle}
+            onclick={handleAddLayersMenuToggle}
+            disabled={isAddLayersButtonDisabled}
+          ></lightning-button-icon>
+
+          <template if:true={isAddMenuOpen}>
+            <div class={addMenuClass}>
+              <div class="layer-add-menu-header">
+                <div class="layer-add-menu-title">Add Layers</div>
+
+                <lightning-button-icon
+                  icon-name="utility:close"
+                  alternative-text="Close add layers menu"
+                  title="Close add layers menu"
+                  onclick={handleAddLayersMenuClose}
+                  size="x-small"
+                ></lightning-button-icon>
+              </div>
+
+              <div class="layer-add-menu-list">
+                <template for:each={hiddenLayers} for:item="layer">
+                  <section key={layer.mapLayerId} class="layer-add-menu-row">
+                    <div class="layer-add-menu-row-main">
+                      <div class="layer-card-title-row">
+                        <div class="layer-card-title">{layer.mapLayerName}</div>
+
+                        <template if:true={layer.isDefaultSelected}>
+                          <span class="layer-default-badge">Default</span>
+                        </template>
+                      </div>
+                    </div>
+
+                    <div class="layer-add-menu-row-action">
+                      <button
+                        class="layer-visibility-button layer-visibility-button-hidden"
+                        type="button"
+                        data-layer-id={layer.mapLayerId}
+                        onclick={handleAddLayerClick}
+                        title="Add layer to pane"
+                        aria-label="Add layer to pane"
+                      >
+                        Add
+                      </button>
+                    </div>
+                  </section>
+                </template>
+              </div>
+            </div>
+          </template>
+        </div>
+
+        <lightning-button-icon
+          icon-name={sidebarToggleIconName}
+          alternative-text={sidebarToggleTitle}
+          title={sidebarToggleTitle}
+          onclick={handleSidebarToggle}
+          disabled={loading}
+        ></lightning-button-icon>
+      </div>
+    </div>
+
+    <template if:true={hasSelectedLayers}>
+      <div class="side-panel-section">
+        <div class="side-panel-section-heading">Shown in Pane</div>
+
+        <template for:each={shownLayers} for:item="layer">
+          <section key={layer.mapLayerId} class="layer-card">
+            <div class="layer-card-header">
+              <div class="layer-card-title-wrap">
+                <div class="layer-card-title-row">
+                  <div class="layer-card-title">{layer.mapLayerName}</div>
+
+                  <template if:true={layer.isDefaultSelected}>
+                    <span class="layer-default-badge">Default</span>
+                  </template>
+                </div>
+
+                <div class="layer-card-subtitle">{layer.visibleFeatureCount} visible feature(s)</div>
+              </div>
+
+              <div class="layer-card-actions">
+                <template if:true={layer.hasFilterControl}>
+                  <button
+                    class="layer-icon-button"
+                    type="button"
+                    data-layer-id={layer.mapLayerId}
+                    data-filter-trigger="true"
+                    onclick={handleToggleFilterPanel}
+                    title="Adjust layer filters"
+                    aria-label="Adjust layer filters"
+                  >
+                    <lightning-icon
+                      icon-name="utility:filterList"
+                      size="x-small"
+                      alternative-text="Filters"
+                    ></lightning-icon>
+                  </button>
+                </template>
+
+                <button
+                  class="layer-visibility-button layer-visibility-button-visible"
+                  type="button"
+                  data-layer-id={layer.mapLayerId}
+                  onclick={handleRemoveLayerClick}
+                  title="Remove layer from pane"
+                  aria-label="Remove layer from pane"
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+
+            <template if:true={layer.hasFilterControl}>
+              <div class="layer-filter-summary-row">
+                <div class="layer-filter-summary-label">Filters</div>
+                <div class="layer-filter-summary-value">{layer.filterSummaryText}</div>
+              </div>
+            </template>
+
+            <template if:true={layer.hasError}>
+              <div class="message message-error layer-inline-message">
+                <div class="message-title">Layer Error</div>
+                <div>{layer.errorMessage}</div>
+              </div>
+            </template>
+
+            <template if:true={layer.hasWarnings}>
+              <div class="warning-list">
+                <template for:each={layer.warnings} for:item="warning">
+                  <div key={warning} class="message message-warning layer-inline-message">
+                    <div>{warning}</div>
+                  </div>
+                </template>
+              </div>
+            </template>
+
+            <template if:true={layer.isFilterPanelOpen}>
+              <div class="layer-filter-panel" data-filter-panel="true">
+                <div class="layer-filter-panel-header">
+                  <div class="layer-filter-panel-title">Layer Filters</div>
+
+                  <button
+                    class="layer-filter-clear-button"
+                    type="button"
+                    data-layer-id={layer.mapLayerId}
+                    onclick={handleClearLayerFilters}
+                    title="Clear all filters"
+                    aria-label="Clear all filters"
+                  >
+                    Clear
+                  </button>
+                </div>
+
+                <template for:each={layer.filterFields} for:item="filterField">
+                  <template if:true={filterField.hasOptions}>
+                    <section key={filterField.fieldPath} class="layer-filter-group">
+                      <div class="layer-filter-group-header">
+                        <div class="layer-filter-field-label">{filterField.fieldLabel}</div>
+
+                        <template if:true={filterField.hasSelectedValues}>
+                          <div class="layer-filter-field-summary">
+                            {filterField.selectedSummaryText}
+                          </div>
+                        </template>
+                      </div>
+
+                      <div class="layer-filter-option-list">
+                        <template for:each={filterField.options} for:item="option">
+                          <label key={option.value} class="layer-filter-option">
+                            <input
+                              type="checkbox"
+                              checked={option.checked}
+                              data-layer-id={layer.mapLayerId}
+                              data-field-path={filterField.fieldPath}
+                              data-value={option.value}
+                              onchange={handleLayerFilterOptionChange}
+                            />
+                            <span>{option.label}</span>
+                          </label>
+                        </template>
+                      </div>
+                    </section>
+                  </template>
+                </template>
+              </div>
+            </template>
+          </section>
+        </template>
+      </div>
+    </template>
+  </aside>
+</template>
