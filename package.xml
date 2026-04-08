@@ -5,11 +5,12 @@
         <name>ApexClass</name>
     </types>
     <types>
-        <members>projectRecordMap</members>
-        <members>projectRecordMapWorkLogModal</members>
-        <members>projectRecordMapSegmentPathEditor</members>
-        <members>projectRecordMapBulkWorkLogModal</members>
-        <name>LightningComponentBundle</name>
+    <members>projectRecordMap</members>
+    <members>projectRecordMapLayerPanel</members>
+    <members>projectRecordMapWorkLogModal</members>
+    <members>projectRecordMapSegmentPathEditor</members>
+    <members>projectRecordMapBulkWorkLogModal</members>
+    <name>LightningComponentBundle</name>
     </types>
     <version>63.0</version>
 </Package>
