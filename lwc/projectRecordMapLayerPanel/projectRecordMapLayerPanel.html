@@ -14,7 +14,11 @@
           ></lightning-button-icon>
 
           <template if:true={isAddMenuOpen}>
-            <div class={addMenuClass}>
+            <div
+              class={addMenuClass}
+              data-id="layer-add-menu"
+              style={addMenuInlineStyle}
+            >
               <div class="layer-add-menu-header">
                 <div class="layer-add-menu-title">Add Layers</div>
 
@@ -27,32 +31,51 @@
                 ></lightning-button-icon>
               </div>
 
+              <template if:true={showAddMenuSearch}>
+                <div class="layer-add-menu-search">
+                  <lightning-input
+                    data-id="add-layer-search"
+                    type="search"
+                    variant="label-hidden"
+                    placeholder="Search layers"
+                    value={addMenuSearchValue}
+                    oninput={handleAddMenuSearchInput}
+                  ></lightning-input>
+                </div>
+              </template>
+
               <div class="layer-add-menu-list">
-                <template for:each={hiddenLayers} for:item="layer">
-                  <section key={layer.mapLayerId} class="layer-add-menu-row">
-                    <div class="layer-add-menu-row-main">
-                      <div class="layer-card-title-row">
-                        <div class="layer-card-title">{layer.mapLayerName}</div>
+                <template if:true={hasFilteredAvailableLayersToAdd}>
+                  <template for:each={filteredHiddenLayers} for:item="layer">
+                    <section key={layer.mapLayerId} class="layer-add-menu-row">
+                      <div class="layer-add-menu-row-main">
+                        <div class="layer-card-title-row">
+                          <div class="layer-card-title">{layer.mapLayerName}</div>
 
-                        <template if:true={layer.isDefaultSelected}>
-                          <span class="layer-default-badge">Default</span>
-                        </template>
+                          <template if:true={layer.isDefaultSelected}>
+                            <span class="layer-default-badge">Default</span>
+                          </template>
+                        </div>
                       </div>
-                    </div>
 
-                    <div class="layer-add-menu-row-action">
-                      <button
-                        class="layer-visibility-button layer-visibility-button-hidden"
-                        type="button"
-                        data-layer-id={layer.mapLayerId}
-                        onclick={handleAddLayerClick}
-                        title="Add layer to pane"
-                        aria-label="Add layer to pane"
-                      >
-                        Add
-                      </button>
-                    </div>
-                  </section>
+                      <div class="layer-add-menu-row-action">
+                        <button
+                          class="layer-visibility-button layer-visibility-button-hidden"
+                          type="button"
+                          data-layer-id={layer.mapLayerId}
+                          onclick={handleAddLayerClick}
+                          title="Add layer to pane"
+                          aria-label="Add layer to pane"
+                        >
+                          Add
+                        </button>
+                      </div>
+                    </section>
+                  </template>
+                </template>
+
+                <template if:false={hasFilteredAvailableLayersToAdd}>
+                  <div class="layer-add-menu-empty">{addMenuEmptyStateText}</div>
                 </template>
               </div>
             </div>
@@ -89,33 +112,61 @@
               </div>
 
               <div class="layer-card-actions">
-                <template if:true={layer.hasFilterControl}>
-                  <button
-                    class="layer-icon-button"
-                    type="button"
-                    data-layer-id={layer.mapLayerId}
-                    data-filter-trigger="true"
-                    onclick={handleToggleFilterPanel}
-                    title="Adjust layer filters"
-                    aria-label="Adjust layer filters"
-                  >
-                    <lightning-icon
-                      icon-name="utility:filterList"
-                      size="x-small"
-                      alternative-text="Filters"
-                    ></lightning-icon>
-                  </button>
-                </template>
+                <button
+                  class="layer-icon-button"
+                  type="button"
+                  data-layer-id={layer.mapLayerId}
+                  data-filter-trigger="true"
+                  onclick={handleToggleFilterPanel}
+                  title={layer.filterButtonTitle}
+                  aria-label={layer.filterButtonTitle}
+                  disabled={layer.isFilterButtonDisabled}
+                >
+                  <lightning-icon
+                    icon-name="utility:filterList"
+                    size="x-small"
+                    alternative-text="Filters"
+                  ></lightning-icon>
+                </button>
 
                 <button
-                  class="layer-visibility-button layer-visibility-button-visible"
+                  class="layer-icon-button"
+                  type="button"
+                  data-layer-id={layer.mapLayerId}
+                  onclick={handleToggleLayerVisibility}
+                  title={layer.visibilityButtonTitle}
+                  aria-label={layer.visibilityButtonTitle}
+                >
+                  <template if:true={layer.isVisibleOnMap}>
+                    <lightning-icon
+                      icon-name="utility:preview"
+                      size="x-small"
+                      alternative-text="Hide layer on map"
+                    ></lightning-icon>
+                  </template>
+
+                  <template if:false={layer.isVisibleOnMap}>
+                    <lightning-icon
+                      icon-name="utility:hide"
+                      size="x-small"
+                      alternative-text="Show layer on map"
+                    ></lightning-icon>
+                  </template>
+                </button>
+
+                <button
+                  class="layer-icon-button layer-icon-button-destructive"
                   type="button"
                   data-layer-id={layer.mapLayerId}
                   onclick={handleRemoveLayerClick}
                   title="Remove layer from pane"
                   aria-label="Remove layer from pane"
                 >
-                  Remove
+                  <lightning-icon
+                    icon-name="utility:close"
+                    size="x-small"
+                    alternative-text="Remove layer from pane"
+                  ></lightning-icon>
                 </button>
               </div>
             </div>
