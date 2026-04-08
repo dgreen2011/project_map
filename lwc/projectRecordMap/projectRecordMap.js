@@ -6,44 +6,37 @@ import { loadScript, loadStyle } from "lightning/platformResourceLoader";
 
 import leafletResource from "@salesforce/resourceUrl/leaflet_1_9_4";
 
-const ALL_FILTER_VALUE = "__ALL__";
+import {
+  buildLayerStateSnapshot,
+  normalizeLayerResponse,
+  applyPreviousLayerState,
+  hydrateLayerState,
+  getFilteredFeatures,
+  getSelectableVisibleFeatures
+} from "c/projectRecordMapLayerStateUtils";
+import {
+  BASEMAP_MODE_SATELLITE,
+  createInitialBasemapState,
+  buildBasemapModeSwitchState,
+  buildBasemapLoadedState,
+  buildBasemapTileErrorResult,
+  getBasemapProvider,
+  buildTileLayerOptions,
+  getNextBasemapMode,
+  getBasemapToggleTitle,
+  getActiveBasemapLabel
+} from "c/projectRecordMapBasemapUtils";
+import {
+  ensureClosedPolygonLatLngs,
+  doesFeatureIntersectLasso
+} from "c/projectRecordMapGeometryUtils";
+import {
+  createLeafletLayer,
+  createSelectionHighlightLayer
+} from "c/projectRecordMapLeafletUtils";
+
 const DEFAULT_MAP_CENTER = [39.8283, -98.5795];
 const DEFAULT_MAP_ZOOM = 4;
-const DEFAULT_POINT_COLOR = "#2f80ed";
-const DEFAULT_LINE_COLOR = "#0b8f86";
-const DEFAULT_POLYGON_COLOR = "#5779c1";
-
-const OPENSTREETMAP_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
-const OPENSTREETMAP_TILE_ATTRIBUTION = "&copy; OpenStreetMap contributors";
-
-const BASEMAP_PROVIDERS = [
-  {
-    key: "esri-services",
-    label: "Esri World Imagery",
-    url: "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    attribution:
-      "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
-    host: "https://services.arcgisonline.com",
-    isSatellite: true
-  },
-  {
-    key: "esri-server",
-    label: "Esri World Imagery",
-    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
-    attribution:
-      "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
-    host: "https://server.arcgisonline.com",
-    isSatellite: true
-  },
-  {
-    key: "osm-fallback",
-    label: "OpenStreetMap",
-    url: OPENSTREETMAP_TILE_URL,
-    attribution: OPENSTREETMAP_TILE_ATTRIBUTION,
-    host: "https://tile.openstreetmap.org",
-    isSatellite: false
-  }
-];
 
 const SITE_OBJECT_API_NAME = "sitetracker__site__c";
 const SEGMENT_OBJECT_API_NAME = "sitetracker__segment__c";
@@ -51,8 +44,6 @@ const SEGMENT_OBJECT_API_NAME = "sitetracker__segment__c";
 const LASSO_CLOSE_DISTANCE_PX = 18;
 const LASSO_STROKE_COLOR = "#0176d3";
 const LASSO_FILL_COLOR = "#0176d3";
-const SELECTION_HIGHLIGHT_COLOR = "#ff9f1c";
-const GEOMETRY_EPSILON = 1e-10;
 
 export default class ProjectRecordMap extends NavigationMixin(LightningElement) {
   @api recordId;
@@ -85,6 +76,9 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
   map = null;
   tileLayer = null;
+  zoomControl = null;
+  basemapToggleControl = null;
+  basemapToggleButtonElement = null;
   renderedFeatureGroup = null;
   selectionHighlightGroup = null;
 
@@ -123,10 +117,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   boundLeafletMapDoubleClickHandler = null;
   boundLeafletMapMouseMoveHandler = null;
 
-  basemapProviderIndex = 0;
-  basemapTileErrorCount = 0;
-  basemapHasLoaded = false;
-  basemapFallbackTriggered = false;
+  basemapState = createInitialBasemapState(BASEMAP_MODE_SATELLITE);
 
   renderedCallback() {
     this.ensurePopupActionListener();
@@ -154,6 +145,10 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     return this.allLayers.filter((layer) => layer.isSelected);
   }
 
+  get visibleUiLayers() {
+    return this.uiLayers.filter((layer) => layer.isVisibleOnMap);
+  }
+
   get availableLayersToAdd() {
     return this.allLayers.filter((layer) => !layer.isSelected);
   }
@@ -174,12 +169,20 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     return this.uiLayers.length > 0;
   }
 
+  get hasVisibleSelectedLayers() {
+    return this.visibleUiLayers.length > 0;
+  }
+
   get hasAvailableLayersToAdd() {
     return this.availableLayersToAdd.length > 0;
   }
 
   get selectedLayerCount() {
     return this.uiLayers.length;
+  }
+
+  get visibleLayerCount() {
+    return this.visibleUiLayers.length;
   }
 
   get sidebarToggleIconName() {
@@ -207,7 +210,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   get isLassoButtonDisabled() {
-    return !this.mapReady || this.isLoading || !this.hasSelectedLayers;
+    return !this.mapReady || this.isLoading || !this.hasVisibleSelectedLayers;
   }
 
   get showInlineMapPanel() {
@@ -249,7 +252,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   get totalRenderedFeatureCount() {
-    return this.uiLayers.reduce((sum, layer) => sum + (layer.visibleFeatureCount || 0), 0);
+    return this.visibleUiLayers.reduce((sum, layer) => sum + (layer.visibleFeatureCount || 0), 0);
   }
 
   get showNoVisibleFeatures() {
@@ -269,8 +272,8 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
     return `${this.totalRenderedFeatureCount} visible feature${
       this.totalRenderedFeatureCount === 1 ? "" : "s"
-    } across ${this.selectedLayerCount} selected layer${
-      this.selectedLayerCount === 1 ? "" : "s"
+    } across ${this.visibleLayerCount} visible layer${
+      this.visibleLayerCount === 1 ? "" : "s"
     }`;
   }
 
@@ -365,12 +368,8 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       zoomControl: false
     });
 
-    window.L.control
-      .zoom({
-        position: "bottomright"
-      })
-      .addTo(this.map);
-
+    this.createBasemapToggleControl();
+    this.createZoomControl();
     this.initializeBasemapLayer();
     this.registerLeafletMapListeners();
     this.map.setView(DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM);
@@ -379,11 +378,81 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     this.scheduleMapViewportSync({ fitToBounds: false });
   }
 
+  createBasemapToggleControl() {
+    if (!this.map || !window.L || this.basemapToggleControl) {
+      return;
+    }
+
+    this.basemapToggleControl = window.L.control({ position: "bottomright" });
+
+    this.basemapToggleControl.onAdd = () => {
+      const container = window.L.DomUtil.create("div", "leaflet-bar");
+      container.style.boxShadow = "0 1px 5px rgb(0 0 0 / 45%)";
+      container.style.borderRadius = "4px";
+      container.style.overflow = "hidden";
+
+      const button = window.L.DomUtil.create("button", "", container);
+      button.type = "button";
+      button.style.width = "30px";
+      button.style.height = "30px";
+      button.style.display = "flex";
+      button.style.alignItems = "center";
+      button.style.justifyContent = "center";
+      button.style.background = "#ffffff";
+      button.style.border = "0";
+      button.style.color = "#2f3e5c";
+      button.style.cursor = "pointer";
+      button.style.padding = "0";
+      button.style.margin = "0";
+      button.style.lineHeight = "1";
+      button.style.font = "inherit";
+
+      window.L.DomEvent.disableClickPropagation(container);
+      window.L.DomEvent.disableScrollPropagation(container);
+      window.L.DomEvent.on(button, "click", (event) => {
+        window.L.DomEvent.stop(event);
+        this.handleToggleBasemapMode();
+      });
+
+      this.basemapToggleButtonElement = button;
+      this.syncBasemapControlButton();
+
+      return container;
+    };
+
+    this.basemapToggleControl.addTo(this.map);
+  }
+
+  createZoomControl() {
+    if (!this.map || !window.L || this.zoomControl) {
+      return;
+    }
+
+    this.zoomControl = window.L.control.zoom({
+      position: "bottomright"
+    });
+    this.zoomControl.addTo(this.map);
+  }
+
+  syncBasemapControlButton() {
+    if (!this.basemapToggleButtonElement) {
+      return;
+    }
+
+    const activeLabel = getActiveBasemapLabel(this.basemapState.mode);
+    const toggleTitle = getBasemapToggleTitle(this.basemapState.mode);
+
+    this.basemapToggleButtonElement.innerHTML = getBasemapControlIconMarkup(this.basemapState.mode);
+    this.basemapToggleButtonElement.title = `${activeLabel} view. ${toggleTitle}`;
+    this.basemapToggleButtonElement.setAttribute("aria-label", `${activeLabel} view. ${toggleTitle}`);
+    this.basemapToggleButtonElement.setAttribute("data-basemap-mode", this.basemapState.mode);
+  }
+
   initializeBasemapLayer() {
-    this.basemapProviderIndex = 0;
-    this.basemapTileErrorCount = 0;
-    this.basemapHasLoaded = false;
-    this.basemapFallbackTriggered = false;
+    this.basemapState = buildBasemapModeSwitchState(
+      this.basemapState?.mode || BASEMAP_MODE_SATELLITE
+    );
+    this.tileWarningMessage = "";
     this.replaceBasemapLayer();
   }
 
@@ -392,8 +461,8 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       return;
     }
 
-    const basemap = BASEMAP_PROVIDERS[this.basemapProviderIndex];
-    if (!basemap) {
+    const basemapProvider = getBasemapProvider(this.basemapState);
+    if (!basemapProvider) {
       return;
     }
 
@@ -406,55 +475,58 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       }
     }
 
-    this.basemapTileErrorCount = 0;
-    this.basemapHasLoaded = false;
-    this.tileLayer = window.L.tileLayer(basemap.url, {
-      attribution: basemap.attribution,
-      maxZoom: 22
-    });
+    this.tileLayer = window.L.tileLayer(
+      basemapProvider.url,
+      buildTileLayerOptions(basemapProvider)
+    );
 
     this.tileLayer.on("tileerror", () => {
       this.handleBasemapTileError();
     });
 
     this.tileLayer.on("load", () => {
-      this.basemapHasLoaded = true;
-      if (basemap.isSatellite) {
-        this.tileWarningMessage = "";
-      } else {
-        this.tileWarningMessage =
-          "Satellite tiles were unavailable, so the map fell back to standard map tiles.";
-      }
+      this.handleBasemapTileLoad();
     });
 
     this.tileLayer.addTo(this.map);
+    this.syncBasemapControlButton();
+  }
+
+  handleBasemapTileLoad() {
+    this.basemapState = buildBasemapLoadedState(this.basemapState);
+    this.tileWarningMessage = this.basemapState.warningMessage || "";
+    this.syncBasemapControlButton();
   }
 
   handleBasemapTileError() {
-    this.basemapTileErrorCount += 1;
+    const tileErrorResult = buildBasemapTileErrorResult(this.basemapState);
+    this.basemapState = tileErrorResult.state;
+    this.tileWarningMessage = this.basemapState.warningMessage || "";
+    this.syncBasemapControlButton();
 
-    if (this.basemapHasLoaded || this.basemapFallbackTriggered) {
+    if (tileErrorResult.shouldReplaceLayer) {
+      this.replaceBasemapLayer();
+    }
+  }
+
+  handleToggleBasemapMode() {
+    if (!this.mapReady || !window.L) {
       return;
     }
 
-    if (this.basemapTileErrorCount < 2) {
-      return;
-    }
+    const viewState = this.captureMapViewState();
 
-    const nextIndex = this.basemapProviderIndex + 1;
-    if (nextIndex >= BASEMAP_PROVIDERS.length) {
-      const currentBasemap = BASEMAP_PROVIDERS[this.basemapProviderIndex];
-      this.tileWarningMessage = `Map tiles failed to load. Confirm CSP Trusted Site access for ${currentBasemap.host}.`;
-      return;
-    }
-
-    this.basemapFallbackTriggered = true;
-    this.basemapProviderIndex = nextIndex;
-    const nextBasemap = BASEMAP_PROVIDERS[nextIndex];
-    this.tileWarningMessage = nextBasemap.isSatellite
-      ? `Trying an alternate satellite tile source. Confirm CSP Trusted Site access for ${nextBasemap.host} if tiles still do not load.`
-      : "Satellite tiles were unavailable, so the map fell back to standard map tiles.";
+    this.basemapState = buildBasemapModeSwitchState(
+      getNextBasemapMode(this.basemapState.mode)
+    );
+    this.tileWarningMessage = "";
+    this.syncBasemapControlButton();
     this.replaceBasemapLayer();
+
+    this.scheduleMapViewportSync({
+      preserveView: true,
+      viewState
+    });
   }
 
   registerLeafletMapListeners() {
@@ -500,6 +572,14 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     this.setMapContainerLassoState(false);
     this.isLassoMode = false;
 
+    if (this.tileLayer) {
+      try {
+        this.tileLayer.off();
+      } catch (error) {
+        // swallow cleanup errors
+      }
+    }
+
     if (this.map) {
       try {
         this.map.remove();
@@ -510,6 +590,9 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
     this.map = null;
     this.tileLayer = null;
+    this.zoomControl = null;
+    this.basemapToggleControl = null;
+    this.basemapToggleButtonElement = null;
     this.renderedFeatureGroup = null;
     this.mapReady = false;
   }
@@ -633,382 +716,38 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   async applyResponse(response) {
-    const previousStateByLayerId = {};
-
-    this.allLayers.forEach((layer) => {
-      previousStateByLayerId[layer.mapLayerId] = {
-        isSelected: Boolean(layer.isSelected),
-        isFilterPanelOpen: Boolean(layer.isFilterPanelOpen),
-        filterSelectionsByFieldPath: this.buildLayerFilterSelectionMap(layer)
-      };
-    });
-
+    const previousStateByLayerId = buildLayerStateSnapshot(this.allLayers);
     const responseLayers = Array.isArray(response?.layers) ? response.layers : [];
     const selectAllByDefault = this.hasLegacyConfiguredLayerInputs;
 
     this.allLayers = responseLayers.map((incomingLayer) => {
-      let normalizedLayer = this.normalizeLayerResponse(incomingLayer);
-      const previousState = previousStateByLayerId[normalizedLayer.mapLayerId];
+      let normalizedLayer = normalizeLayerResponse(incomingLayer, {
+        isSelected: false,
+        isVisibleOnMap: false,
+        isFilterPanelOpen: false
+      });
 
+      const previousState = previousStateByLayerId[normalizedLayer.mapLayerId];
       if (previousState) {
-        normalizedLayer = this.applyPreviousLayerState(normalizedLayer, previousState);
-      } else {
-        normalizedLayer = this.hydrateLayerState({
-          ...normalizedLayer,
-          isSelected: selectAllByDefault ? true : Boolean(normalizedLayer.isDefaultSelected),
-          isFilterPanelOpen: false
-        });
+        return applyPreviousLayerState(normalizedLayer, previousState);
       }
 
-      return normalizedLayer;
+      const isSelected = selectAllByDefault ? true : Boolean(normalizedLayer.isDefaultSelected);
+
+      return hydrateLayerState({
+        ...normalizedLayer,
+        isSelected,
+        isVisibleOnMap: isSelected,
+        isFilterPanelOpen: false
+      });
     });
 
     this.reconcileSelectedLassoFeatures();
   }
 
-  normalizeLayerResponse(layer) {
-    const safeFeatures = Array.isArray(layer?.features) ? layer.features : [];
-    const safeWarnings = Array.isArray(layer?.warnings) ? layer.warnings : [];
-    const safePopupFields = Array.isArray(layer?.popupFields) ? layer.popupFields : [];
-    const safeFilterFields = Array.isArray(layer?.filterFields) ? layer.filterFields : [];
-    const safeStyleValueOptions = Array.isArray(layer?.styleValueOptions)
-      ? layer.styleValueOptions
-      : [];
-
-    const normalizedStyleConfig = this.normalizeStyleConfig(layer?.styleConfig);
-    const normalizedFilterFields = safeFilterFields.map((filterField) =>
-      this.normalizeFilterField(filterField)
-    );
-
-    return this.hydrateLayerState({
-      slotNumber: Number(layer?.slotNumber) || 0,
-      mapLayerId: layer?.mapLayerId || "",
-      mapLayerName: layer?.mapLayerName || `Layer ${layer?.slotNumber || ""}`.trim(),
-      layerType: layer?.layerType || "",
-      layerStatus: layer?.layerStatus || "",
-      isDefaultSelected: Boolean(layer?.isDefaultSelected),
-      objectApiName: layer?.objectApiName || "",
-      geometryType: layer?.geometryType || "",
-      relationshipFieldPath: layer?.relationshipFieldPath || "",
-      relationshipFieldSource: layer?.relationshipFieldSource || "",
-      filterFieldPath: layer?.filterFieldPath || "",
-      filterFieldLabel: layer?.filterFieldLabel || "",
-      filterFieldSource: layer?.filterFieldSource || "",
-      filterOptions: Array.isArray(layer?.filterOptions) ? layer.filterOptions : [],
-      filterFields: normalizedFilterFields,
-      popupFieldsRawJson: layer?.popupFieldsRawJson || "",
-      popupFields: safePopupFields,
-      styleConfig: normalizedStyleConfig,
-      styleValueOptions: safeStyleValueOptions,
-      queriedRecordCount: Number(layer?.queriedRecordCount) || 0,
-      renderedFeatureCount: Number(layer?.renderedFeatureCount) || 0,
-      skippedRecordCount: Number(layer?.skippedRecordCount) || 0,
-      warnings: safeWarnings,
-      errorMessage: layer?.errorMessage || "",
-      features: safeFeatures.map((feature) => this.normalizeFeatureResponse(layer, feature)),
-      isSelected: false,
-      isFilterPanelOpen: false,
-      visibleFeatureCount: 0
-    });
-  }
-
-  normalizeFilterField(filterField) {
-    const rawOptions = Array.isArray(filterField?.options) ? filterField.options : [];
-    const options = rawOptions
-      .map((option) => this.normalizeString(option))
-      .filter((option) => Boolean(option))
-      .map((option) => ({
-        label: option,
-        value: option,
-        checked: false
-      }));
-
-    return this.hydrateFilterFieldState({
-      fieldPath: filterField?.fieldPath || "",
-      fieldLabel: filterField?.fieldLabel || "",
-      dataType: filterField?.dataType || "",
-      options,
-      selectedValues: []
-    });
-  }
-
-  normalizeFeatureResponse(layer, feature) {
-    return {
-      recordId: feature?.recordId || "",
-      name: feature?.name || "",
-      geometryType: feature?.geometryType || "",
-      geometryRaw: feature?.geometryRaw || "",
-      latitude: this.toNumber(feature?.latitude),
-      longitude: this.toNumber(feature?.longitude),
-      geometrySourceFieldPath: feature?.geometrySourceFieldPath || "",
-      filterValue: feature?.filterValue || "",
-      filterValues: this.normalizeFeatureFilterValues(layer, feature),
-      styleValue: feature?.styleValue || "",
-      popupValues: Array.isArray(feature?.popupValues) ? feature.popupValues : [],
-      canCreateWorkLog: Boolean(feature?.canCreateWorkLog),
-      productionLineAllocationId: feature?.productionLineAllocationId || "",
-      targetObjectApiName:
-        feature?.targetObjectApiName || feature?.objectApiName || layer?.objectApiName || "",
-      recordUrl: this.buildFallbackRecordUrl(
-        feature?.recordId || "",
-        feature?.targetObjectApiName || feature?.objectApiName || layer?.objectApiName || ""
-      )
-    };
-  }
-
-  normalizeFeatureFilterValues(layer, feature) {
-    const incomingFilterValues = Array.isArray(feature?.filterValues) ? feature.filterValues : [];
-
-    if (incomingFilterValues.length) {
-      return incomingFilterValues
-        .map((item) => ({
-          fieldPath: item?.fieldPath || "",
-          value: item?.value || ""
-        }))
-        .filter((item) => item.fieldPath && item.value);
-    }
-
-    if (feature?.filterValue && layer?.filterFieldPath) {
-      return [
-        {
-          fieldPath: layer.filterFieldPath,
-          value: feature.filterValue
-        }
-      ];
-    }
-
-    return [];
-  }
-
-  normalizeStyleConfig(styleConfig) {
-    if (!styleConfig) {
-      return null;
-    }
-
-    const defaultSymbol = this.safeParseJson(styleConfig.defaultSymbolJson);
-    const uniqueValueRules = Array.isArray(styleConfig.uniqueValueRules)
-      ? styleConfig.uniqueValueRules.map((rule) => ({
-          label: rule?.label || "",
-          value: rule?.value || "",
-          symbol: this.safeParseJson(rule?.symbolJson)
-        }))
-      : [];
-
-    return {
-      rawJson: styleConfig.rawJson || "",
-      fieldPath: styleConfig.fieldPath || "",
-      fieldLabel: styleConfig.fieldLabel || "",
-      defaultSymbol,
-      uniqueValueRules
-    };
-  }
-
-  hydrateFilterFieldState(filterField) {
-    const selectedValues = Array.isArray(filterField?.selectedValues)
-      ? filterField.selectedValues.filter((value) => Boolean(value))
-      : [];
-    const selectedValueSet = new Set(selectedValues);
-
-    const options = Array.isArray(filterField?.options)
-      ? filterField.options.map((option) => ({
-          label: option?.label || option?.value || "",
-          value: option?.value || option?.label || "",
-          checked: selectedValueSet.has(option?.value || option?.label || "")
-        }))
-      : [];
-
-    return {
-      ...filterField,
-      options,
-      selectedValues,
-      selectedCount: selectedValues.length,
-      hasOptions: options.length > 0,
-      hasSelectedValues: selectedValues.length > 0,
-      selectedSummaryText: this.buildSelectedValuesText(selectedValues)
-    };
-  }
-
-  hydrateLayerState(layer) {
-    const nextFilterFields = Array.isArray(layer?.filterFields)
-      ? layer.filterFields.map((filterField) => this.hydrateFilterFieldState(filterField))
-      : [];
-
-    const nextLayer = {
-      ...layer,
-      filterFields: nextFilterFields,
-      hasError: Boolean(layer?.errorMessage),
-      hasWarnings: Array.isArray(layer?.warnings) && layer.warnings.length > 0,
-      hasFilterControl: nextFilterFields.some((filterField) => filterField.hasOptions)
-    };
-
-    const activeFilterCount = this.getAppliedFilterCount(nextLayer);
-    const visibleFeatureCount = this.getFilteredFeatures(nextLayer).length;
-
-    return {
-      ...nextLayer,
-      activeFilterCount,
-      filterSummaryText: this.buildLayerFilterSummaryText(nextLayer, activeFilterCount),
-      selectionButtonLabel: nextLayer.isSelected ? "Remove" : "Add",
-      selectionButtonTitle: nextLayer.isSelected
-        ? "Remove layer from pane"
-        : "Add layer to pane",
-      visibleFeatureCount
-    };
-  }
-
-  applyPreviousLayerState(layer, previousState) {
-    const filterSelectionsByFieldPath = previousState?.filterSelectionsByFieldPath || {};
-    const nextFilterFields = layer.filterFields.map((filterField) => {
-      const availableValues = new Set(filterField.options.map((option) => option.value));
-      const priorSelectedValues = Array.isArray(filterSelectionsByFieldPath[filterField.fieldPath])
-        ? filterSelectionsByFieldPath[filterField.fieldPath]
-        : [];
-
-      const validSelectedValues = priorSelectedValues.filter((value) => availableValues.has(value));
-
-      return {
-        ...filterField,
-        selectedValues: validSelectedValues
-      };
-    });
-
-    return this.hydrateLayerState({
-      ...layer,
-      isSelected: Boolean(previousState?.isSelected),
-      isFilterPanelOpen: Boolean(previousState?.isFilterPanelOpen),
-      filterFields: nextFilterFields
-    });
-  }
-
-  buildLayerFilterSelectionMap(layer) {
-    const selections = {};
-
-    if (!Array.isArray(layer?.filterFields)) {
-      return selections;
-    }
-
-    layer.filterFields.forEach((filterField) => {
-      selections[filterField.fieldPath] = Array.isArray(filterField.selectedValues)
-        ? [...filterField.selectedValues]
-        : [];
-    });
-
-    return selections;
-  }
-
-  buildSelectedValuesText(values) {
-    if (!Array.isArray(values) || !values.length) {
-      return "All";
-    }
-
-    if (values.length <= 2) {
-      return values.join(", ");
-    }
-
-    return `${values[0]}, ${values[1]} +${values.length - 2}`;
-  }
-
-  buildLayerFilterSummaryText(layer, activeFilterCount = null) {
-    const appliedCount =
-      activeFilterCount === null ? this.getAppliedFilterCount(layer) : activeFilterCount;
-
-    if (!layer?.hasFilterControl) {
-      return "";
-    }
-
-    if (!appliedCount) {
-      return "All";
-    }
-
-    return `${appliedCount} selected`;
-  }
-
-  getAppliedFilterCount(layer) {
-    if (!Array.isArray(layer?.filterFields)) {
-      return 0;
-    }
-
-    return layer.filterFields.reduce(
-      (sum, filterField) => sum + (filterField.selectedCount || 0),
-      0
-    );
-  }
-
-  getFilteredFeatures(layer) {
-    if (!layer?.isSelected) {
-      return [];
-    }
-
-    const filterFields = Array.isArray(layer?.filterFields) ? layer.filterFields : [];
-    const appliedFilterFields = filterFields.filter(
-      (filterField) => Array.isArray(filterField.selectedValues) && filterField.selectedValues.length
-    );
-
-    if (!appliedFilterFields.length) {
-      return Array.isArray(layer?.features) ? layer.features : [];
-    }
-
-    return (Array.isArray(layer?.features) ? layer.features : []).filter((feature) =>
-      appliedFilterFields.every((filterField) =>
-        this.doesFeatureMatchFilterField(feature, filterField)
-      )
-    );
-  }
-
-  doesFeatureMatchFilterField(feature, filterField) {
-    const selectedValues = Array.isArray(filterField?.selectedValues)
-      ? filterField.selectedValues
-      : [];
-
-    if (!selectedValues.length) {
-      return true;
-    }
-
-    const featureValues = (Array.isArray(feature?.filterValues) ? feature.filterValues : [])
-      .filter((item) => item?.fieldPath === filterField.fieldPath)
-      .map((item) => item?.value)
-      .filter((value) => Boolean(value));
-
-    if (!featureValues.length) {
-      return false;
-    }
-
-    return selectedValues.some((selectedValue) => featureValues.includes(selectedValue));
-  }
-
-  getSelectableVisibleFeatures() {
-    const visibleSelectableFeatures = [];
-
-    this.uiLayers.forEach((layer) => {
-      if (!layer || layer.hasError || !layer.isSelected) {
-        return;
-      }
-
-      this.getFilteredFeatures(layer).forEach((feature) => {
-        if (this.isSelectableFeature(layer, feature)) {
-          visibleSelectableFeatures.push({ layer, feature });
-        }
-      });
-    });
-
-    return visibleSelectableFeatures;
-  }
-
-  isSelectableFeature(layer, feature) {
-    const normalizedObjectApiName = this.normalizeString(
-      feature?.targetObjectApiName || layer?.objectApiName || ""
-    )?.toLowerCase();
-
-    return (
-      Boolean(feature?.recordId) &&
-      (normalizedObjectApiName === SITE_OBJECT_API_NAME ||
-        normalizedObjectApiName === SEGMENT_OBJECT_API_NAME)
-    );
-  }
-
   closeAllFilterMenus({ exceptLayerId = null } = {}) {
     this.allLayers = this.allLayers.map((layer) =>
-      this.hydrateLayerState({
+      hydrateLayerState({
         ...layer,
         isFilterPanelOpen:
           exceptLayerId && layer.mapLayerId === exceptLayerId ? layer.isFilterPanelOpen : false
@@ -1040,15 +779,15 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     let hasAnyRenderedFeature = false;
 
     this.allLayers = this.allLayers.map((layer) => {
-      const visibleFeatures = this.getFilteredFeatures(layer);
-      const updatedLayer = this.hydrateLayerState({
+      const visibleFeatures = getFilteredFeatures(layer);
+      const updatedLayer = hydrateLayerState({
         ...layer,
         visibleFeatureCount: visibleFeatures.length
       });
 
-      if (!updatedLayer.hasError && updatedLayer.isSelected) {
+      if (!updatedLayer.hasError && updatedLayer.isSelected && updatedLayer.isVisibleOnMap) {
         visibleFeatures.forEach((feature) => {
-          const leafletLayer = this.createLeafletLayer(updatedLayer, feature);
+          const leafletLayer = createLeafletLayer(window.L, updatedLayer, feature);
           if (leafletLayer) {
             featureGroup.addLayer(leafletLayer);
             hasAnyRenderedFeature = true;
@@ -1060,6 +799,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     });
 
     this.renderedFeatureGroup = featureGroup.addTo(this.map);
+    this.reconcileSelectedLassoFeatures();
     this.renderSelectionHighlights();
     this.syncLassoDraftLayers();
 
@@ -1085,7 +825,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     const highlightGroup = window.L.featureGroup();
 
     this.selectedLassoFeatures.forEach((feature) => {
-      const highlightLayer = this.createSelectionHighlightLayer(feature);
+      const highlightLayer = createSelectionHighlightLayer(window.L, feature);
       if (highlightLayer) {
         highlightGroup.addLayer(highlightLayer);
       }
@@ -1102,84 +842,6 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     }
 
     this.selectionHighlightGroup = null;
-  }
-
-  createSelectionHighlightLayer(feature) {
-    if (!window.L || !feature) {
-      return null;
-    }
-
-    if (feature.geometryType === "point") {
-      return this.createSelectionPointLayer(feature);
-    }
-
-    if (feature.geometryType === "polyline") {
-      return this.createSelectionPolylineLayer(feature);
-    }
-
-    return null;
-  }
-
-  createSelectionPointLayer(feature) {
-    const latitude = this.toNumber(feature?.latitude);
-    const longitude = this.toNumber(feature?.longitude);
-
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-      return null;
-    }
-
-    return window.L.circleMarker([latitude, longitude], {
-      radius: 8,
-      color: "#ffffff",
-      weight: 3,
-      opacity: 1,
-      fillColor: SELECTION_HIGHLIGHT_COLOR,
-      fillOpacity: 0.95
-    });
-  }
-
-  createSelectionPolylineLayer(feature) {
-    const coordinateSets = this.extractPolylineCoordinateSets(feature?.geometryRaw);
-    if (!coordinateSets.length) {
-      return null;
-    }
-
-    const renderedLayers = [];
-
-    coordinateSets.forEach((coordinateSet) => {
-      const latLngs = this.toLatLngs(coordinateSet);
-      if (latLngs.length < 2) {
-        return;
-      }
-
-      renderedLayers.push(
-        window.L.polyline(latLngs, {
-          color: "#ffffff",
-          weight: 8,
-          opacity: 0.95,
-          lineCap: "round",
-          lineJoin: "round"
-        })
-      );
-
-      renderedLayers.push(
-        window.L.polyline(latLngs, {
-          color: SELECTION_HIGHLIGHT_COLOR,
-          weight: 5,
-          opacity: 1,
-          lineCap: "round",
-          lineJoin: "round"
-        })
-      );
-    });
-
-    if (!renderedLayers.length) {
-      return null;
-    }
-
-    return renderedLayers.length === 1
-      ? renderedLayers[0]
-      : window.L.featureGroup(renderedLayers);
   }
 
   fitMapToFeatureGroup(featureGroup) {
@@ -1352,8 +1014,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       return directLayerId;
     }
 
-    const rawSlot =
-      event?.currentTarget?.dataset?.slot || event?.target?.dataset?.slot || null;
+    const rawSlot = event?.currentTarget?.dataset?.slot || event?.target?.dataset?.slot || null;
     const slotNumber = Number(rawSlot);
 
     if (!Number.isFinite(slotNumber)) {
@@ -1399,10 +1060,40 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
         return layer;
       }
 
-      return this.hydrateLayerState({
+      return hydrateLayerState({
         ...layer,
         isSelected,
+        isVisibleOnMap: isSelected ? true : false,
         isFilterPanelOpen: isSelected ? layer.isFilterPanelOpen : false
+      });
+    });
+
+    this.renderVisibleFeatures({
+      preserveView: true,
+      viewState
+    });
+  }
+
+  toggleLayerVisibility(layerId) {
+    if (!layerId) {
+      return;
+    }
+
+    const viewState = this.captureMapViewState();
+
+    this.cancelLassoMode({
+      clearSelection: true,
+      closeBulkModal: true
+    });
+
+    this.allLayers = this.allLayers.map((layer) => {
+      if (layer.mapLayerId !== layerId) {
+        return layer;
+      }
+
+      return hydrateLayerState({
+        ...layer,
+        isVisibleOnMap: !layer.isVisibleOnMap
       });
     });
 
@@ -1442,11 +1133,16 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   handleLayerVisibilityChange(event) {
-    this.handleLayerSelectionToggle(event);
+    this.handleLayerVisibilityToggle(event);
   }
 
   handleLayerVisibilityToggle(event) {
-    this.handleLayerSelectionToggle(event);
+    const layerId = this.resolveLayerIdFromEvent(event);
+    if (!layerId) {
+      return;
+    }
+
+    this.toggleLayerVisibility(layerId);
   }
 
   handleToggleFilterPanel(event) {
@@ -1457,7 +1153,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
     this.allLayers = this.allLayers.map((layer) => {
       const shouldOpen = layer.mapLayerId === layerId ? !layer.isFilterPanelOpen : false;
-      return this.hydrateLayerState({
+      return hydrateLayerState({
         ...layer,
         isFilterPanelOpen: shouldOpen
       });
@@ -1488,7 +1184,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
     this.allLayers = this.allLayers.map((layer) => {
       if (layer.mapLayerId !== layerId) {
-        return this.hydrateLayerState({
+        return hydrateLayerState({
           ...layer,
           isFilterPanelOpen: false
         });
@@ -1517,7 +1213,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
         };
       });
 
-      return this.hydrateLayerState({
+      return hydrateLayerState({
         ...layer,
         filterFields: nextFilterFields,
         isFilterPanelOpen: true
@@ -1553,7 +1249,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
         selectedValues: []
       }));
 
-      return this.hydrateLayerState({
+      return hydrateLayerState({
         ...layer,
         filterFields: nextFilterFields,
         isFilterPanelOpen: true
@@ -1583,7 +1279,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
     this.allLayers = this.allLayers.map((layer) => {
       if (layer.mapLayerId !== layerId) {
-        return this.hydrateLayerState({
+        return hydrateLayerState({
           ...layer,
           isFilterPanelOpen: false
         });
@@ -1596,14 +1292,11 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
         return {
           ...filterField,
-          selectedValues:
-            selectedFilterValue && selectedFilterValue !== ALL_FILTER_VALUE
-              ? [selectedFilterValue]
-              : []
+          selectedValues: selectedFilterValue ? [selectedFilterValue] : []
         };
       });
 
-      return this.hydrateLayerState({
+      return hydrateLayerState({
         ...layer,
         filterFields: nextFilterFields,
         isFilterPanelOpen: false
@@ -1759,7 +1452,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       return;
     }
 
-    const closedPolygon = this.ensureClosedPolygonLatLngs(this.lassoDraftLatLngs);
+    const closedPolygon = ensureClosedPolygonLatLngs(this.lassoDraftLatLngs);
     const selectedFeatures = this.selectFeaturesWithinLasso(closedPolygon);
 
     this.isLassoMode = false;
@@ -1907,11 +1600,11 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   selectFeaturesWithinLasso(polygonLatLngs) {
-    const closedPolygon = this.ensureClosedPolygonLatLngs(polygonLatLngs);
+    const closedPolygon = ensureClosedPolygonLatLngs(polygonLatLngs);
     const selectedByKey = new Map();
 
-    this.getSelectableVisibleFeatures().forEach(({ layer, feature }) => {
-      if (!this.doesFeatureIntersectLasso(feature, closedPolygon)) {
+    getSelectableVisibleFeatures(this.allLayers).forEach(({ layer, feature }) => {
+      if (!doesFeatureIntersectLasso(feature, closedPolygon)) {
         return;
       }
 
@@ -1939,7 +1632,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     const selectedKeys = new Set(this.selectedLassoFeatures.map((feature) => feature.key));
     const nextSelections = [];
 
-    this.getSelectableVisibleFeatures().forEach(({ layer, feature }) => {
+    getSelectableVisibleFeatures(this.allLayers).forEach(({ layer, feature }) => {
       const snapshot = this.buildSelectedFeatureSnapshot(layer, feature);
       if (selectedKeys.has(snapshot.key)) {
         nextSelections.push(snapshot);
@@ -1977,857 +1670,6 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
   buildFeatureSelectionKey(objectApiName, recordId) {
     return `${this.normalizeString(objectApiName || "") || ""}::${recordId || ""}`;
-  }
-
-  doesFeatureIntersectLasso(feature, polygonLatLngs) {
-    if (!feature || !Array.isArray(polygonLatLngs) || polygonLatLngs.length < 4) {
-      return false;
-    }
-
-    if (feature.geometryType === "point") {
-      const pointLatLng = [this.toNumber(feature.latitude), this.toNumber(feature.longitude)];
-      if (!Number.isFinite(pointLatLng[0]) || !Number.isFinite(pointLatLng[1])) {
-        return false;
-      }
-
-      return this.isPointInsidePolygon(pointLatLng, polygonLatLngs);
-    }
-
-    if (feature.geometryType === "polyline") {
-      const coordinateSets = this.extractPolylineCoordinateSets(feature.geometryRaw);
-      return coordinateSets.some((coordinateSet) => {
-        const latLngs = this.toLatLngs(coordinateSet);
-        return this.doesLatLngPolylineIntersectPolygon(latLngs, polygonLatLngs);
-      });
-    }
-
-    return false;
-  }
-
-  ensureClosedPolygonLatLngs(latLngs) {
-    if (!Array.isArray(latLngs) || !latLngs.length) {
-      return [];
-    }
-
-    const firstPoint = latLngs[0];
-    const lastPoint = latLngs[latLngs.length - 1];
-
-    if (this.areLatLngsEqual(firstPoint, lastPoint)) {
-      return [...latLngs];
-    }
-
-    return [...latLngs, firstPoint];
-  }
-
-  areLatLngsEqual(left, right) {
-    if (!Array.isArray(left) || !Array.isArray(right)) {
-      return false;
-    }
-
-    return (
-      Math.abs(Number(left[0]) - Number(right[0])) <= GEOMETRY_EPSILON &&
-      Math.abs(Number(left[1]) - Number(right[1])) <= GEOMETRY_EPSILON
-    );
-  }
-
-  doesLatLngPolylineIntersectPolygon(latLngs, polygonLatLngs) {
-    if (!Array.isArray(latLngs) || latLngs.length < 2 || !Array.isArray(polygonLatLngs)) {
-      return false;
-    }
-
-    if (latLngs.some((pointLatLng) => this.isPointInsidePolygon(pointLatLng, polygonLatLngs))) {
-      return true;
-    }
-
-    if (polygonLatLngs.some((polygonPoint) => this.isPointOnPolyline(polygonPoint, latLngs))) {
-      return true;
-    }
-
-    const polygonEdges = this.buildLatLngSegmentPairs(polygonLatLngs);
-
-    for (let index = 0; index < latLngs.length - 1; index += 1) {
-      const lineStart = latLngs[index];
-      const lineEnd = latLngs[index + 1];
-
-      for (let edgeIndex = 0; edgeIndex < polygonEdges.length; edgeIndex += 1) {
-        const polygonEdge = polygonEdges[edgeIndex];
-        if (
-          this.doLatLngSegmentsIntersect(lineStart, lineEnd, polygonEdge.start, polygonEdge.end)
-        ) {
-          return true;
-        }
-      }
-    }
-
-    return false;
-  }
-
-  buildLatLngSegmentPairs(latLngs) {
-    const segments = [];
-
-    if (!Array.isArray(latLngs) || latLngs.length < 2) {
-      return segments;
-    }
-
-    for (let index = 0; index < latLngs.length - 1; index += 1) {
-      segments.push({
-        start: latLngs[index],
-        end: latLngs[index + 1]
-      });
-    }
-
-    return segments;
-  }
-
-  isPointInsidePolygon(pointLatLng, polygonLatLngs) {
-    if (!Array.isArray(pointLatLng) || !Array.isArray(polygonLatLngs) || polygonLatLngs.length < 4) {
-      return false;
-    }
-
-    if (this.isPointOnPolyline(pointLatLng, polygonLatLngs)) {
-      return true;
-    }
-
-    const pointX = Number(pointLatLng[1]);
-    const pointY = Number(pointLatLng[0]);
-
-    let isInside = false;
-
-    for (
-      let currentIndex = 0, previousIndex = polygonLatLngs.length - 1;
-      currentIndex < polygonLatLngs.length;
-      previousIndex = currentIndex++
-    ) {
-      const currentPoint = polygonLatLngs[currentIndex];
-      const previousPoint = polygonLatLngs[previousIndex];
-
-      const currentX = Number(currentPoint[1]);
-      const currentY = Number(currentPoint[0]);
-      const previousX = Number(previousPoint[1]);
-      const previousY = Number(previousPoint[0]);
-
-      const doesRayIntersect =
-        currentY > pointY !== previousY > pointY &&
-        pointX <
-          ((previousX - currentX) * (pointY - currentY)) /
-            (previousY - currentY || GEOMETRY_EPSILON) +
-            currentX;
-
-      if (doesRayIntersect) {
-        isInside = !isInside;
-      }
-    }
-
-    return isInside;
-  }
-
-  isPointOnPolyline(pointLatLng, lineLatLngs) {
-    if (!Array.isArray(pointLatLng) || !Array.isArray(lineLatLngs) || lineLatLngs.length < 2) {
-      return false;
-    }
-
-    for (let index = 0; index < lineLatLngs.length - 1; index += 1) {
-      if (this.isPointOnLatLngSegment(pointLatLng, lineLatLngs[index], lineLatLngs[index + 1])) {
-        return true;
-      }
-    }
-
-    return false;
-  }
-
-  isPointOnLatLngSegment(pointLatLng, segmentStart, segmentEnd) {
-    const pointX = Number(pointLatLng[1]);
-    const pointY = Number(pointLatLng[0]);
-    const startX = Number(segmentStart[1]);
-    const startY = Number(segmentStart[0]);
-    const endX = Number(segmentEnd[1]);
-    const endY = Number(segmentEnd[0]);
-
-    const crossProduct =
-      (pointY - startY) * (endX - startX) - (pointX - startX) * (endY - startY);
-
-    if (Math.abs(crossProduct) > GEOMETRY_EPSILON) {
-      return false;
-    }
-
-    const dotProduct =
-      (pointX - startX) * (endX - startX) + (pointY - startY) * (endY - startY);
-
-    if (dotProduct < -GEOMETRY_EPSILON) {
-      return false;
-    }
-
-    const segmentLengthSquared = (endX - startX) ** 2 + (endY - startY) ** 2;
-
-    return dotProduct - segmentLengthSquared <= GEOMETRY_EPSILON;
-  }
-
-  doLatLngSegmentsIntersect(firstStart, firstEnd, secondStart, secondEnd) {
-    const firstOrientation = this.getLatLngOrientation(firstStart, firstEnd, secondStart);
-    const secondOrientation = this.getLatLngOrientation(firstStart, firstEnd, secondEnd);
-    const thirdOrientation = this.getLatLngOrientation(secondStart, secondEnd, firstStart);
-    const fourthOrientation = this.getLatLngOrientation(secondStart, secondEnd, firstEnd);
-
-    if (firstOrientation !== secondOrientation && thirdOrientation !== fourthOrientation) {
-      return true;
-    }
-
-    if (
-      firstOrientation === 0 &&
-      this.isPointOnLatLngSegment(secondStart, firstStart, firstEnd)
-    ) {
-      return true;
-    }
-    if (
-      secondOrientation === 0 &&
-      this.isPointOnLatLngSegment(secondEnd, firstStart, firstEnd)
-    ) {
-      return true;
-    }
-    if (
-      thirdOrientation === 0 &&
-      this.isPointOnLatLngSegment(firstStart, secondStart, secondEnd)
-    ) {
-      return true;
-    }
-    if (
-      fourthOrientation === 0 &&
-      this.isPointOnLatLngSegment(firstEnd, secondStart, secondEnd)
-    ) {
-      return true;
-    }
-
-    return false;
-  }
-
-  getLatLngOrientation(startPoint, middlePoint, endPoint) {
-    const startX = Number(startPoint[1]);
-    const startY = Number(startPoint[0]);
-    const middleX = Number(middlePoint[1]);
-    const middleY = Number(middlePoint[0]);
-    const endX = Number(endPoint[1]);
-    const endY = Number(endPoint[0]);
-
-    const orientationValue =
-      (middleY - startY) * (endX - middleX) - (middleX - startX) * (endY - middleY);
-
-    if (Math.abs(orientationValue) <= GEOMETRY_EPSILON) {
-      return 0;
-    }
-
-    return orientationValue > 0 ? 1 : 2;
-  }
-
-  createLeafletLayer(layer, feature) {
-    if (!window.L || !feature) {
-      return null;
-    }
-
-    const popupHtml = this.buildPopupHtml(layer, feature);
-    const symbol = this.resolveFeatureSymbol(layer, feature);
-
-    if (feature.geometryType === "point") {
-      return this.createPointLayer(feature, symbol, popupHtml);
-    }
-
-    if (feature.geometryType === "polyline") {
-      return this.createPolylineLayer(feature, symbol, popupHtml);
-    }
-
-    if (feature.geometryType === "polygon") {
-      return this.createPolygonLayer(feature, symbol, popupHtml);
-    }
-
-    return null;
-  }
-
-  createPointLayer(feature, symbol, popupHtml) {
-    const latitude = this.toNumber(feature.latitude);
-    const longitude = this.toNumber(feature.longitude);
-
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-      return null;
-    }
-
-    const pointStyle = this.buildPointLeafletStyle(symbol);
-    const circleMarker = window.L.circleMarker([latitude, longitude], pointStyle);
-
-    if (popupHtml) {
-      circleMarker.bindPopup(popupHtml, { maxWidth: 320 });
-    }
-
-    return circleMarker;
-  }
-
-  createPolylineLayer(feature, symbol, popupHtml) {
-    const coordinateSets = this.extractPolylineCoordinateSets(feature.geometryRaw);
-    if (!coordinateSets.length) {
-      return null;
-    }
-
-    const renderedLayers = [];
-    coordinateSets.forEach((coordinateSet) => {
-      const latLngs = this.toLatLngs(coordinateSet);
-      if (latLngs.length < 2) {
-        return;
-      }
-
-      const outlineStyle = this.buildPolylineOutlineStyle(symbol);
-      if (outlineStyle) {
-        renderedLayers.push(window.L.polyline(latLngs, outlineStyle));
-      }
-
-      renderedLayers.push(window.L.polyline(latLngs, this.buildPolylineStyle(symbol)));
-    });
-
-    if (!renderedLayers.length) {
-      return null;
-    }
-
-    return this.bundleFeatureLayers(renderedLayers, popupHtml);
-  }
-
-  createPolygonLayer(feature, symbol, popupHtml) {
-    const polygonSets = this.extractPolygonCoordinateSets(feature.geometryRaw);
-    if (!polygonSets.length) {
-      return null;
-    }
-
-    const renderedLayers = [];
-    polygonSets.forEach((polygonSet) => {
-      const latLngRings = polygonSet
-        .map((ring) => this.toLatLngs(ring))
-        .filter((ring) => Array.isArray(ring) && ring.length >= 3);
-
-      if (!latLngRings.length) {
-        return;
-      }
-
-      renderedLayers.push(window.L.polygon(latLngRings, this.buildPolygonStyle(symbol)));
-    });
-
-    if (!renderedLayers.length) {
-      return null;
-    }
-
-    return this.bundleFeatureLayers(renderedLayers, popupHtml);
-  }
-
-  bundleFeatureLayers(layers, popupHtml) {
-    if (layers.length === 1) {
-      if (popupHtml) {
-        layers[0].bindPopup(popupHtml, { maxWidth: 320 });
-      }
-      return layers[0];
-    }
-
-    const featureGroup = window.L.featureGroup(layers);
-    if (popupHtml) {
-      featureGroup.bindPopup(popupHtml, { maxWidth: 320 });
-    }
-    return featureGroup;
-  }
-
-  resolveFeatureSymbol(layer, feature) {
-    const styleConfig = layer?.styleConfig;
-    if (!styleConfig) {
-      return null;
-    }
-
-    const styleValue = feature?.styleValue;
-    if (styleValue && Array.isArray(styleConfig.uniqueValueRules)) {
-      const match = styleConfig.uniqueValueRules.find((rule) => rule.value === styleValue);
-      if (match?.symbol) {
-        return match.symbol;
-      }
-    }
-
-    return styleConfig.defaultSymbol || null;
-  }
-
-  buildPointLeafletStyle(symbol) {
-    const fillColor = this.resolveSymbolColor(symbol?.color, DEFAULT_POINT_COLOR);
-    const outlineColor = this.resolveSymbolColor(symbol?.outline?.color, "#000000");
-    const radius = this.resolvePositiveNumber(symbol?.size, 6);
-    const fillOpacity = this.resolveColorAlpha(symbol?.color, 0.75);
-    const weight = this.resolvePositiveNumber(symbol?.outline?.width, 1);
-
-    return {
-      radius,
-      color: outlineColor,
-      weight,
-      opacity: 1,
-      fillColor,
-      fillOpacity
-    };
-  }
-
-  buildPolylineStyle(symbol) {
-    return {
-      color: this.resolveSymbolColor(symbol?.color, DEFAULT_LINE_COLOR),
-      weight: this.resolvePositiveNumber(symbol?.width, 3),
-      opacity: this.resolveColorAlpha(symbol?.color, 0.85),
-      dashArray: this.resolveLineDashArray(symbol?.style),
-      lineCap: "round",
-      lineJoin: "round"
-    };
-  }
-
-  buildPolylineOutlineStyle(symbol) {
-    const outline = symbol?.outline;
-    if (!outline) {
-      return null;
-    }
-
-    const innerWeight = this.resolvePositiveNumber(symbol?.width, 3);
-    const outlineWidth = this.resolvePositiveNumber(outline?.width, 1);
-
-    return {
-      color: this.resolveSymbolColor(outline?.color, "#000000"),
-      weight: innerWeight + outlineWidth * 2,
-      opacity: 1,
-      lineCap: "round",
-      lineJoin: "round"
-    };
-  }
-
-  buildPolygonStyle(symbol) {
-    return {
-      color: this.resolveSymbolColor(symbol?.outline?.color, "#000000"),
-      weight: this.resolvePositiveNumber(symbol?.outline?.width, 1),
-      opacity: 1,
-      fillColor: this.resolveSymbolColor(symbol?.color, DEFAULT_POLYGON_COLOR),
-      fillOpacity: this.resolveColorAlpha(symbol?.color, 0.35),
-      dashArray: this.resolveLineDashArray(symbol?.style)
-    };
-  }
-
-  resolveLineDashArray(styleName) {
-    const normalizedStyle = this.normalizeString(styleName)?.toLowerCase();
-
-    switch (normalizedStyle) {
-      case "dash":
-      case "short-dash":
-      case "long-dash":
-        return "8 6";
-      case "dot":
-      case "short-dot":
-        return "2 6";
-      case "dash-dot":
-      case "short-dash-dot":
-        return "8 4 2 4";
-      default:
-        return null;
-    }
-  }
-
-  resolveSymbolColor(inputColor, fallbackColor) {
-    if (Array.isArray(inputColor)) {
-      const [red, green, blue, alpha] = inputColor;
-      const numericAlpha = this.toNumber(alpha);
-
-      if (
-        Number.isFinite(this.toNumber(red)) &&
-        Number.isFinite(this.toNumber(green)) &&
-        Number.isFinite(this.toNumber(blue))
-      ) {
-        if (Number.isFinite(numericAlpha)) {
-          return `rgba(${Number(red)}, ${Number(green)}, ${Number(blue)}, ${numericAlpha})`;
-        }
-
-        return `rgb(${Number(red)}, ${Number(green)}, ${Number(blue)})`;
-      }
-    }
-
-    if (typeof inputColor === "string" && inputColor.trim()) {
-      return inputColor.trim();
-    }
-
-    return fallbackColor;
-  }
-
-  resolveColorAlpha(inputColor, fallbackAlpha) {
-    if (Array.isArray(inputColor) && inputColor.length >= 4) {
-      const numericAlpha = this.toNumber(inputColor[3]);
-      if (Number.isFinite(numericAlpha)) {
-        return numericAlpha;
-      }
-    }
-
-    return fallbackAlpha;
-  }
-
-  resolvePositiveNumber(value, fallbackValue) {
-    const numericValue = this.toNumber(value);
-    return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : fallbackValue;
-  }
-
-  parseGeometryValue(value) {
-    if (value === null || value === undefined || value === "") {
-      return null;
-    }
-
-    if (typeof value === "string") {
-      const trimmedValue = value.trim();
-      if (!trimmedValue) {
-        return null;
-      }
-
-      try {
-        return JSON.parse(trimmedValue);
-      } catch (error) {
-        return null;
-      }
-    }
-
-    if (typeof value === "object") {
-      return value;
-    }
-
-    return null;
-  }
-
-  normalizePointLike(point) {
-    if (Array.isArray(point) && point.length >= 2) {
-      const longitude = this.toNumber(point[0]);
-      const latitude = this.toNumber(point[1]);
-
-      if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
-        return null;
-      }
-
-      return [longitude, latitude];
-    }
-
-    if (point && typeof point === "object") {
-      const longitude = this.toNumber(
-        point.longitude ??
-          point.lng ??
-          point.lon ??
-          point.x ??
-          point?.location?.longitude ??
-          point?.location?.lng
-      );
-      const latitude = this.toNumber(
-        point.latitude ??
-          point.lat ??
-          point.y ??
-          point?.location?.latitude ??
-          point?.location?.lat
-      );
-
-      if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
-        return null;
-      }
-
-      return [longitude, latitude];
-    }
-
-    return null;
-  }
-
-  normalizeCoordinateSet(candidate) {
-    if (!Array.isArray(candidate)) {
-      return [];
-    }
-
-    return candidate
-      .map((point) => this.normalizePointLike(point))
-      .filter((point) => Array.isArray(point));
-  }
-
-  normalizeNestedCoordinateSets(candidate) {
-    if (!Array.isArray(candidate)) {
-      return [];
-    }
-
-    if (candidate.length && this.normalizePointLike(candidate[0])) {
-      const normalizedSet = this.normalizeCoordinateSet(candidate);
-      return normalizedSet.length >= 2 ? [normalizedSet] : [];
-    }
-
-    return candidate
-      .map((item) => this.normalizeCoordinateSet(item))
-      .filter((set) => Array.isArray(set) && set.length >= 2);
-  }
-
-  extractPolylineCoordinateSets(geometryRaw) {
-    const parsed = this.parseGeometryValue(geometryRaw);
-    if (!parsed) {
-      return [];
-    }
-
-    if (Array.isArray(parsed?.snappedPoints)) {
-      const snappedCoordinates = parsed.snappedPoints
-        .map((point) => this.normalizePointLike(point))
-        .filter((point) => Array.isArray(point));
-
-      return snappedCoordinates.length >= 2 ? [snappedCoordinates] : [];
-    }
-
-    if (parsed?.type === "Feature" && parsed.geometry) {
-      return this.extractPolylineCoordinateSets(parsed.geometry);
-    }
-
-    if (parsed?.geometry) {
-      const geometryResult = this.extractPolylineCoordinateSets(parsed.geometry);
-      if (geometryResult.length) {
-        return geometryResult;
-      }
-    }
-
-    if (parsed?.type === "LineString" && Array.isArray(parsed.coordinates)) {
-      return this.normalizeNestedCoordinateSets([parsed.coordinates]);
-    }
-
-    if (parsed?.type === "MultiLineString" && Array.isArray(parsed.coordinates)) {
-      return this.normalizeNestedCoordinateSets(parsed.coordinates);
-    }
-
-    if (Array.isArray(parsed?.paths)) {
-      return this.normalizeNestedCoordinateSets(parsed.paths);
-    }
-
-    if (Array.isArray(parsed?.path)) {
-      return this.normalizeNestedCoordinateSets([parsed.path]);
-    }
-
-    if (Array.isArray(parsed?.coordinates)) {
-      const directCoordinates = this.normalizeNestedCoordinateSets(parsed.coordinates);
-      if (directCoordinates.length) {
-        return directCoordinates;
-      }
-
-      return this.normalizeNestedCoordinateSets([parsed.coordinates]);
-    }
-
-    if (Array.isArray(parsed)) {
-      const normalizedDirect = this.normalizeNestedCoordinateSets(parsed);
-      if (normalizedDirect.length) {
-        return normalizedDirect;
-      }
-
-      const singleSet = this.normalizeCoordinateSet(parsed);
-      return singleSet.length >= 2 ? [singleSet] : [];
-    }
-
-    return [];
-  }
-
-  extractPolygonCoordinateSets(geometryRaw) {
-    const parsed = this.parseGeometryValue(geometryRaw);
-    if (!parsed) {
-      return [];
-    }
-
-    if (parsed?.type === "Feature" && parsed.geometry) {
-      return this.extractPolygonCoordinateSets(parsed.geometry);
-    }
-
-    if (parsed?.geometry) {
-      const geometryResult = this.extractPolygonCoordinateSets(parsed.geometry);
-      if (geometryResult.length) {
-        return geometryResult;
-      }
-    }
-
-    if (parsed?.type === "Polygon" && Array.isArray(parsed.coordinates)) {
-      return [
-        parsed.coordinates
-          .map((ring) => this.normalizeCoordinateSet(ring))
-          .filter((ring) => ring.length >= 3)
-      ].filter((polygon) => polygon.length);
-    }
-
-    if (parsed?.type === "MultiPolygon" && Array.isArray(parsed.coordinates)) {
-      return parsed.coordinates
-        .map((polygon) =>
-          polygon
-            .map((ring) => this.normalizeCoordinateSet(ring))
-            .filter((ring) => ring.length >= 3)
-        )
-        .filter((polygon) => polygon.length);
-    }
-
-    if (Array.isArray(parsed?.rings)) {
-      const rings = parsed.rings
-        .map((ring) => this.normalizeCoordinateSet(ring))
-        .filter((ring) => ring.length >= 3);
-
-      return rings.length ? [rings] : [];
-    }
-
-    if (Array.isArray(parsed)) {
-      if (parsed.length && Array.isArray(parsed[0]) && Array.isArray(parsed[0][0])) {
-        const polygon = parsed
-          .map((ring) => this.normalizeCoordinateSet(ring))
-          .filter((ring) => ring.length >= 3);
-
-        return polygon.length ? [polygon] : [];
-      }
-    }
-
-    return [];
-  }
-
-  toLatLngs(coordinates) {
-    if (!Array.isArray(coordinates)) {
-      return [];
-    }
-
-    return coordinates
-      .map((point) => {
-        const longitude = this.toNumber(point?.[0]);
-        const latitude = this.toNumber(point?.[1]);
-
-        if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
-          return null;
-        }
-
-        return [latitude, longitude];
-      })
-      .filter((point) => Array.isArray(point));
-  }
-
-  buildFallbackRecordUrl(recordId) {
-    if (!recordId) {
-      return "#";
-    }
-
-    return `/${encodeURIComponent(recordId)}`;
-  }
-
-  shouldShowWorkLogAction(layer, feature) {
-    const objectApiName = this.normalizeString(
-      feature?.targetObjectApiName || layer?.objectApiName || ""
-    )?.toLowerCase();
-
-    if (objectApiName !== SITE_OBJECT_API_NAME && objectApiName !== SEGMENT_OBJECT_API_NAME) {
-      return false;
-    }
-
-    return Boolean(feature?.canCreateWorkLog || feature?.productionLineAllocationId);
-  }
-
-  buildPopupHtml(layer, feature) {
-    const popupValues = Array.isArray(feature?.popupValues) ? feature.popupValues : [];
-    const escapedName = this.escapeHtml(feature?.name || layer?.mapLayerName || "Record");
-    const escapedRecordId = this.escapeHtml(feature?.recordId || "");
-    const escapedObjectApiName = this.escapeHtml(
-      feature?.targetObjectApiName || layer?.objectApiName || ""
-    );
-    const popupShellStyle = [
-      "display:flex",
-      "flex-direction:column",
-      "gap:0.7rem",
-      "min-width:13rem",
-      "max-width:17rem",
-      "font-family:'Salesforce Sans',Arial,sans-serif",
-      "color:#181818"
-    ].join(";");
-    const titleButtonStyle = [
-      "display:block",
-      "width:100%",
-      "padding:0",
-      "border:0",
-      "background:transparent",
-      "font-family:'Salesforce Sans',Arial,sans-serif",
-      "font-size:0.96rem",
-      "font-weight:700",
-      "line-height:1.3",
-      "color:#0176d3",
-      "text-align:left",
-      "text-decoration:none",
-      "word-break:break-word",
-      "cursor:pointer"
-    ].join(";");
-    const valuesWrapStyle = "display:flex;flex-direction:column;gap:0.38rem;";
-    const valueStyle = "font-size:0.84rem;line-height:1.4;color:#181818;word-break:break-word;";
-    const emptyStyle = "font-size:0.8rem;line-height:1.35;color:#5c5c5c;";
-    const footerStyle =
-      "display:flex;justify-content:flex-end;padding-top:0.2rem;border-top:1px solid #eef1f6;";
-    const actionButtonStyle = [
-      "display:inline-flex",
-      "align-items:center",
-      "gap:0.38rem",
-      "border:1px solid #d8dde6",
-      "border-radius:0.45rem",
-      "background:#ffffff",
-      "color:#0176d3",
-      "padding:0.45rem 0.7rem",
-      "font-size:0.78rem",
-      "font-weight:600",
-      "line-height:1",
-      "cursor:pointer"
-    ].join(";");
-    const actionIconStyle = "font-size:0.92rem;line-height:1;";
-
-    const detailRows = popupValues
-      .map((popupValue) => {
-        const value = this.escapeHtml(this.formatPopupValue(popupValue));
-        if (!value) {
-          return "";
-        }
-
-        return `<div style="${valueStyle}">${value}</div>`;
-      })
-      .filter((markup) => Boolean(markup))
-      .join("");
-
-    const actionMarkup = this.shouldShowWorkLogAction(layer, feature)
-      ? `
-        <div style="${footerStyle}">
-          <button
-            type="button"
-            title="Create Work Log"
-            aria-label="Create Work Log"
-            data-worklog-action="true"
-            data-record-id="${escapedRecordId}"
-            data-object-api-name="${escapedObjectApiName}"
-            data-feature-name="${escapedName}"
-            style="${actionButtonStyle}"
-          >
-            <span style="${actionIconStyle}" aria-hidden="true">＋</span>
-            <span>Create Work Log</span>
-          </button>
-        </div>`
-      : "";
-
-    return `
-      <div style="${popupShellStyle}">
-        <div>
-          <button
-            type="button"
-            title="Open record"
-            aria-label="Open record"
-            data-record-action="true"
-            data-record-id="${escapedRecordId}"
-            data-object-api-name="${escapedObjectApiName}"
-            style="${titleButtonStyle}"
-          >
-            ${escapedName}
-          </button>
-        </div>
-        <div style="${valuesWrapStyle}">
-          ${detailRows || `<div style="${emptyStyle}">No popup details configured.</div>`}
-        </div>
-        ${actionMarkup}
-      </div>
-    `;
-  }
-
-  formatPopupValue(popupValue) {
-    const rawValue = popupValue?.displayValue ?? "";
-    const dataType = this.normalizeString(popupValue?.dataType)?.toUpperCase();
-
-    if (dataType === "DOUBLE" || dataType === "CURRENCY" || dataType === "INTEGER") {
-      const numericValue = this.toNumber(rawValue);
-      if (Number.isFinite(numericValue)) {
-        return numericValue.toLocaleString();
-      }
-    }
-
-    return rawValue;
   }
 
   isEventFromLayerPanel(event) {
@@ -2984,8 +1826,16 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
         }
       });
     } catch (error) {
-      return this.buildFallbackRecordUrl(recordId, objectApiName);
+      return this.buildFallbackRecordUrl(recordId);
     }
+  }
+
+  buildFallbackRecordUrl(recordId) {
+    if (!recordId) {
+      return "#";
+    }
+
+    return `/${encodeURIComponent(recordId)}`;
   }
 
   async waitForMapContainerReady(maxAttempts = 16) {
@@ -3009,23 +1859,6 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     });
   }
 
-  safeParseJson(value) {
-    if (!value || typeof value !== "string") {
-      return null;
-    }
-
-    const trimmedValue = value.trim();
-    if (!trimmedValue) {
-      return null;
-    }
-
-    try {
-      return JSON.parse(trimmedValue);
-    } catch (error) {
-      return null;
-    }
-  }
-
   normalizeString(value) {
     return typeof value === "string" ? value.trim() : value;
   }
@@ -3037,15 +1870,6 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
     const numericValue = Number(value);
     return Number.isFinite(numericValue) ? numericValue : NaN;
-  }
-
-  escapeHtml(value) {
-    return String(value ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#39;");
   }
 
   dispatchToast(title, message, variant) {
@@ -3077,4 +1901,37 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
     return "Unknown error.";
   }
+}
+
+function getBasemapControlIconMarkup(mode) {
+  if (mode === "terrain") {
+    return `
+      <svg
+        viewBox="0 0 24 24"
+        width="15"
+        height="15"
+        aria-hidden="true"
+        focusable="false"
+        style="display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;"
+      >
+        <path d="M3 18h18"></path>
+        <path d="M5 18l5-7 3 4 3-5 3 8"></path>
+      </svg>
+    `;
+  }
+
+  return `
+    <svg
+      viewBox="0 0 24 24"
+      width="15"
+      height="15"
+      aria-hidden="true"
+      focusable="false"
+      style="display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;"
+    >
+      <rect x="3.5" y="5" width="17" height="14" rx="1.75"></rect>
+      <path d="M7 14l3-3 2.5 2.5 2.5-3.5 2 4"></path>
+      <circle cx="16.75" cy="9.25" r="1.25"></circle>
+    </svg>
+  `;
 }
