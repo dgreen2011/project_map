@@ -9,15 +9,41 @@ import leafletResource from "@salesforce/resourceUrl/leaflet_1_9_4";
 const ALL_FILTER_VALUE = "__ALL__";
 const DEFAULT_MAP_CENTER = [39.8283, -98.5795];
 const DEFAULT_MAP_ZOOM = 4;
-
-const SATELLITE_TILE_URL =
-  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
-const SATELLITE_TILE_ATTRIBUTION =
-  "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community";
-
 const DEFAULT_POINT_COLOR = "#2f80ed";
 const DEFAULT_LINE_COLOR = "#0b8f86";
 const DEFAULT_POLYGON_COLOR = "#5779c1";
+
+const OPENSTREETMAP_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+const OPENSTREETMAP_TILE_ATTRIBUTION = "&copy; OpenStreetMap contributors";
+
+const BASEMAP_PROVIDERS = [
+  {
+    key: "esri-services",
+    label: "Esri World Imagery",
+    url: "https://services.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attribution:
+      "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+    host: "https://services.arcgisonline.com",
+    isSatellite: true
+  },
+  {
+    key: "esri-server",
+    label: "Esri World Imagery",
+    url: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+    attribution:
+      "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community",
+    host: "https://server.arcgisonline.com",
+    isSatellite: true
+  },
+  {
+    key: "osm-fallback",
+    label: "OpenStreetMap",
+    url: OPENSTREETMAP_TILE_URL,
+    attribution: OPENSTREETMAP_TILE_ATTRIBUTION,
+    host: "https://tile.openstreetmap.org",
+    isSatellite: false
+  }
+];
 
 const SITE_OBJECT_API_NAME = "sitetracker__site__c";
 const SEGMENT_OBJECT_API_NAME = "sitetracker__segment__c";
@@ -36,7 +62,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   @api segmentDetailFieldSetApiName;
   @api layerFilterFieldSetApiName;
 
-  // Retained for backward compatibility with older component configs.
+  // Legacy inputs retained for backward compatibility.
   @api mapLayerRecordId1;
   @api relationshipFieldPathOverride1;
   @api filterFieldPathOverride1;
@@ -87,7 +113,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   selectedLassoFeatures = [];
   isLassoMode = false;
 
-  uiLayers = [];
+  allLayers = [];
 
   popupActionListenerRegistered = false;
   boundTemplateClickHandler = null;
@@ -96,6 +122,11 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   boundLeafletMapClickHandler = null;
   boundLeafletMapDoubleClickHandler = null;
   boundLeafletMapMouseMoveHandler = null;
+
+  basemapProviderIndex = 0;
+  basemapTileErrorCount = 0;
+  basemapHasLoaded = false;
+  basemapFallbackTriggered = false;
 
   renderedCallback() {
     this.ensurePopupActionListener();
@@ -119,40 +150,36 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     return `height: ${safeHeight}px;`;
   }
 
+  get uiLayers() {
+    return this.allLayers.filter((layer) => layer.isSelected);
+  }
+
+  get availableLayersToAdd() {
+    return this.allLayers.filter((layer) => !layer.isSelected);
+  }
+
   get hasLegacyConfiguredLayerInputs() {
     return this.buildLegacyConfiguredLayerInputs().length > 0;
   }
 
   get hasConfiguredLayers() {
-    return this.uiLayers.length > 0;
+    return this.allLayers.length > 0;
   }
 
   get hasLayerPanels() {
-    return this.uiLayers.length > 0;
+    return this.allLayers.length > 0;
   }
 
   get hasSelectedLayers() {
-    return this.uiLayers.some((layer) => layer.isSelected);
+    return this.uiLayers.length > 0;
+  }
+
+  get hasAvailableLayersToAdd() {
+    return this.availableLayersToAdd.length > 0;
   }
 
   get selectedLayerCount() {
-    return this.uiLayers.filter((layer) => layer.isSelected).length;
-  }
-
-  get showSidePanel() {
-    return this.hasLayerPanels && !this.isSidebarCollapsed && !this.isMapExpanded;
-  }
-
-  get showSidePanelInPopout() {
-    return this.hasLayerPanels && !this.isSidebarCollapsed && this.isMapExpanded;
-  }
-
-  get showCollapsedSidebarHandle() {
-    return this.hasLayerPanels && this.isSidebarCollapsed && !this.isMapExpanded;
-  }
-
-  get showCollapsedSidebarHandleInPopout() {
-    return this.hasLayerPanels && this.isSidebarCollapsed && this.isMapExpanded;
+    return this.uiLayers.length;
   }
 
   get sidebarToggleIconName() {
@@ -187,6 +214,22 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     return !this.isMapExpanded;
   }
 
+  get showSidePanel() {
+    return this.hasLayerPanels && !this.isSidebarCollapsed && !this.isMapExpanded;
+  }
+
+  get showSidePanelInPopout() {
+    return this.hasLayerPanels && !this.isSidebarCollapsed && this.isMapExpanded;
+  }
+
+  get showCollapsedSidebarHandle() {
+    return this.hasLayerPanels && this.isSidebarCollapsed && !this.isMapExpanded;
+  }
+
+  get showCollapsedSidebarHandleInPopout() {
+    return this.hasLayerPanels && this.isSidebarCollapsed && this.isMapExpanded;
+  }
+
   get contentGridClass() {
     return this.showSidePanel ? "content-grid" : "content-grid content-grid-collapsed";
   }
@@ -198,38 +241,37 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   get showNoConfiguredLayers() {
-    return !this.isLoading && !this.errorMessage && !this.hasLayerPanels;
+    return !this.isLoading && !this.errorMessage && !this.hasConfiguredLayers;
   }
 
   get showNoSelectedLayers() {
-    return !this.isLoading && !this.errorMessage && this.hasLayerPanels && !this.hasSelectedLayers;
+    return !this.isLoading && !this.errorMessage && this.hasConfiguredLayers && !this.hasSelectedLayers;
   }
 
   get totalRenderedFeatureCount() {
-    return this.uiLayers
-      .filter((layer) => layer.isSelected)
-      .reduce((sum, layer) => sum + (layer.visibleFeatureCount || 0), 0);
+    return this.uiLayers.reduce((sum, layer) => sum + (layer.visibleFeatureCount || 0), 0);
   }
 
   get showNoVisibleFeatures() {
     return (
       !this.isLoading &&
       !this.errorMessage &&
-      this.hasLayerPanels &&
+      this.hasConfiguredLayers &&
       this.hasSelectedLayers &&
       this.totalRenderedFeatureCount === 0
     );
   }
 
   get mapSummaryText() {
-    if (!this.hasLayerPanels) {
+    if (!this.hasConfiguredLayers) {
       return "";
     }
 
-    const selectedLayerCount = this.selectedLayerCount;
     return `${this.totalRenderedFeatureCount} visible feature${
       this.totalRenderedFeatureCount === 1 ? "" : "s"
-    } across ${selectedLayerCount} selected layer${selectedLayerCount === 1 ? "" : "s"}`;
+    } across ${this.selectedLayerCount} selected layer${
+      this.selectedLayerCount === 1 ? "" : "s"
+    }`;
   }
 
   get workLogModalTargetRecordId() {
@@ -329,27 +371,91 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       })
       .addTo(this.map);
 
-    this.tileLayer = window.L
-      .tileLayer(SATELLITE_TILE_URL, {
-        attribution: SATELLITE_TILE_ATTRIBUTION,
-        maxZoom: 22
-      })
-      .addTo(this.map);
-
-    this.tileLayer.on("tileerror", () => {
-      this.tileWarningMessage =
-        "Satellite tiles failed to load. Confirm CSP Trusted Site access for https://server.arcgisonline.com.";
-    });
-
-    this.tileLayer.on("load", () => {
-      this.tileWarningMessage = "";
-    });
-
+    this.initializeBasemapLayer();
     this.registerLeafletMapListeners();
     this.map.setView(DEFAULT_MAP_CENTER, DEFAULT_MAP_ZOOM);
     this.mapReady = true;
     this.syncLassoInteractionState();
     this.scheduleMapViewportSync({ fitToBounds: false });
+  }
+
+  initializeBasemapLayer() {
+    this.basemapProviderIndex = 0;
+    this.basemapTileErrorCount = 0;
+    this.basemapHasLoaded = false;
+    this.basemapFallbackTriggered = false;
+    this.replaceBasemapLayer();
+  }
+
+  replaceBasemapLayer() {
+    if (!window.L || !this.map) {
+      return;
+    }
+
+    const basemap = BASEMAP_PROVIDERS[this.basemapProviderIndex];
+    if (!basemap) {
+      return;
+    }
+
+    if (this.tileLayer) {
+      try {
+        this.tileLayer.off();
+        this.map.removeLayer(this.tileLayer);
+      } catch (error) {
+        // swallow cleanup errors
+      }
+    }
+
+    this.basemapTileErrorCount = 0;
+    this.basemapHasLoaded = false;
+    this.tileLayer = window.L.tileLayer(basemap.url, {
+      attribution: basemap.attribution,
+      maxZoom: 22,
+      crossOrigin: true
+    });
+
+    this.tileLayer.on("tileerror", () => {
+      this.handleBasemapTileError();
+    });
+
+    this.tileLayer.on("load", () => {
+      this.basemapHasLoaded = true;
+      if (basemap.isSatellite) {
+        this.tileWarningMessage = "";
+      } else {
+        this.tileWarningMessage =
+          "Satellite tiles were unavailable, so the map fell back to standard map tiles.";
+      }
+    });
+
+    this.tileLayer.addTo(this.map);
+  }
+
+  handleBasemapTileError() {
+    this.basemapTileErrorCount += 1;
+
+    if (this.basemapHasLoaded || this.basemapFallbackTriggered) {
+      return;
+    }
+
+    if (this.basemapTileErrorCount < 2) {
+      return;
+    }
+
+    const nextIndex = this.basemapProviderIndex + 1;
+    if (nextIndex >= BASEMAP_PROVIDERS.length) {
+      const currentBasemap = BASEMAP_PROVIDERS[this.basemapProviderIndex];
+      this.tileWarningMessage = `Map tiles failed to load. Confirm CSP Trusted Site access for ${currentBasemap.host}.`;
+      return;
+    }
+
+    this.basemapFallbackTriggered = true;
+    this.basemapProviderIndex = nextIndex;
+    const nextBasemap = BASEMAP_PROVIDERS[nextIndex];
+    this.tileWarningMessage = nextBasemap.isSatellite
+      ? `Trying an alternate satellite tile source. Confirm CSP Trusted Site access for ${nextBasemap.host} if tiles still do not load.`
+      : "Satellite tiles were unavailable, so the map fell back to standard map tiles.";
+    this.replaceBasemapLayer();
   }
 
   registerLeafletMapListeners() {
@@ -507,7 +613,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       this.markInitialLoadComplete();
     } catch (error) {
       this.errorMessage = this.reduceError(error);
-      this.uiLayers = [];
+      this.allLayers = [];
       this.clearRenderedFeatures();
       this.clearSelectedFeatures();
 
@@ -530,7 +636,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   async applyResponse(response) {
     const previousStateByLayerId = {};
 
-    this.uiLayers.forEach((layer) => {
+    this.allLayers.forEach((layer) => {
       previousStateByLayerId[layer.mapLayerId] = {
         isSelected: Boolean(layer.isSelected),
         isFilterPanelOpen: Boolean(layer.isFilterPanelOpen),
@@ -541,7 +647,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     const responseLayers = Array.isArray(response?.layers) ? response.layers : [];
     const selectAllByDefault = this.hasLegacyConfiguredLayerInputs;
 
-    this.uiLayers = responseLayers.map((incomingLayer) => {
+    this.allLayers = responseLayers.map((incomingLayer) => {
       let normalizedLayer = this.normalizeLayerResponse(incomingLayer);
       const previousState = previousStateByLayerId[normalizedLayer.mapLayerId];
 
@@ -745,8 +851,8 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       filterSummaryText: this.buildLayerFilterSummaryText(nextLayer, activeFilterCount),
       selectionButtonLabel: nextLayer.isSelected ? "Remove" : "Add",
       selectionButtonTitle: nextLayer.isSelected
-        ? "Remove layer from map"
-        : "Add layer to map",
+        ? "Remove layer from pane"
+        : "Add layer to pane",
       visibleFeatureCount
     };
   }
@@ -902,7 +1008,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   closeAllFilterMenus({ exceptLayerId = null } = {}) {
-    this.uiLayers = this.uiLayers.map((layer) =>
+    this.allLayers = this.allLayers.map((layer) =>
       this.hydrateLayerState({
         ...layer,
         isFilterPanelOpen:
@@ -934,7 +1040,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     const featureGroup = window.L.featureGroup();
     let hasAnyRenderedFeature = false;
 
-    this.uiLayers = this.uiLayers.map((layer) => {
+    this.allLayers = this.allLayers.map((layer) => {
       const visibleFeatures = this.getFilteredFeatures(layer);
       const updatedLayer = this.hydrateLayerState({
         ...layer,
@@ -1231,594 +1337,6 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     }
   }
 
-  createLeafletLayer(layer, feature) {
-    if (!window.L || !feature) {
-      return null;
-    }
-
-    const popupHtml = this.buildPopupHtml(layer, feature);
-    const symbol = this.resolveFeatureSymbol(layer, feature);
-
-    if (feature.geometryType === "point") {
-      return this.createPointLayer(feature, symbol, popupHtml);
-    }
-
-    if (feature.geometryType === "polyline") {
-      return this.createPolylineLayer(feature, symbol, popupHtml);
-    }
-
-    if (feature.geometryType === "polygon") {
-      return this.createPolygonLayer(feature, symbol, popupHtml);
-    }
-
-    return null;
-  }
-
-  createPointLayer(feature, symbol, popupHtml) {
-    const latitude = this.toNumber(feature.latitude);
-    const longitude = this.toNumber(feature.longitude);
-
-    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
-      return null;
-    }
-
-    const pointStyle = this.buildPointLeafletStyle(symbol);
-    const circleMarker = window.L.circleMarker([latitude, longitude], pointStyle);
-
-    if (popupHtml) {
-      circleMarker.bindPopup(popupHtml, { maxWidth: 320 });
-    }
-
-    return circleMarker;
-  }
-
-  createPolylineLayer(feature, symbol, popupHtml) {
-    const coordinateSets = this.extractPolylineCoordinateSets(feature.geometryRaw);
-    if (!coordinateSets.length) {
-      return null;
-    }
-
-    const renderedLayers = [];
-    coordinateSets.forEach((coordinateSet) => {
-      const latLngs = this.toLatLngs(coordinateSet);
-      if (latLngs.length < 2) {
-        return;
-      }
-
-      const outlineStyle = this.buildPolylineOutlineStyle(symbol);
-      if (outlineStyle) {
-        renderedLayers.push(window.L.polyline(latLngs, outlineStyle));
-      }
-
-      renderedLayers.push(window.L.polyline(latLngs, this.buildPolylineStyle(symbol)));
-    });
-
-    if (!renderedLayers.length) {
-      return null;
-    }
-
-    return this.bundleFeatureLayers(renderedLayers, popupHtml);
-  }
-
-  createPolygonLayer(feature, symbol, popupHtml) {
-    const polygonSets = this.extractPolygonCoordinateSets(feature.geometryRaw);
-    if (!polygonSets.length) {
-      return null;
-    }
-
-    const renderedLayers = [];
-    polygonSets.forEach((polygonSet) => {
-      const latLngRings = polygonSet
-        .map((ring) => this.toLatLngs(ring))
-        .filter((ring) => Array.isArray(ring) && ring.length >= 3);
-
-      if (!latLngRings.length) {
-        return;
-      }
-
-      renderedLayers.push(window.L.polygon(latLngRings, this.buildPolygonStyle(symbol)));
-    });
-
-    if (!renderedLayers.length) {
-      return null;
-    }
-
-    return this.bundleFeatureLayers(renderedLayers, popupHtml);
-  }
-
-  bundleFeatureLayers(layers, popupHtml) {
-    if (layers.length === 1) {
-      if (popupHtml) {
-        layers[0].bindPopup(popupHtml, { maxWidth: 320 });
-      }
-      return layers[0];
-    }
-
-    const featureGroup = window.L.featureGroup(layers);
-    if (popupHtml) {
-      featureGroup.bindPopup(popupHtml, { maxWidth: 320 });
-    }
-    return featureGroup;
-  }
-
-  resolveFeatureSymbol(layer, feature) {
-    const styleConfig = layer?.styleConfig;
-    if (!styleConfig) {
-      return null;
-    }
-
-    const styleValue = feature?.styleValue;
-    if (styleValue && Array.isArray(styleConfig.uniqueValueRules)) {
-      const match = styleConfig.uniqueValueRules.find((rule) => rule.value === styleValue);
-      if (match?.symbol) {
-        return match.symbol;
-      }
-    }
-
-    return styleConfig.defaultSymbol || null;
-  }
-
-  buildPointLeafletStyle(symbol) {
-    const fillColor = this.resolveSymbolColor(symbol?.color, DEFAULT_POINT_COLOR);
-    const outlineColor = this.resolveSymbolColor(symbol?.outline?.color, "#000000");
-    const radius = this.resolvePositiveNumber(symbol?.size, 6);
-    const fillOpacity = this.resolveColorAlpha(symbol?.color, 0.75);
-    const weight = this.resolvePositiveNumber(symbol?.outline?.width, 1);
-
-    return {
-      radius,
-      color: outlineColor,
-      weight,
-      opacity: 1,
-      fillColor,
-      fillOpacity
-    };
-  }
-
-  buildPolylineStyle(symbol) {
-    return {
-      color: this.resolveSymbolColor(symbol?.color, DEFAULT_LINE_COLOR),
-      weight: this.resolvePositiveNumber(symbol?.width, 3),
-      opacity: this.resolveColorAlpha(symbol?.color, 0.85),
-      dashArray: this.resolveLineDashArray(symbol?.style),
-      lineCap: "round",
-      lineJoin: "round"
-    };
-  }
-
-  buildPolylineOutlineStyle(symbol) {
-    const outline = symbol?.outline;
-    if (!outline) {
-      return null;
-    }
-
-    const innerWeight = this.resolvePositiveNumber(symbol?.width, 3);
-    const outlineWidth = this.resolvePositiveNumber(outline?.width, 1);
-
-    return {
-      color: this.resolveSymbolColor(outline?.color, "#000000"),
-      weight: innerWeight + outlineWidth * 2,
-      opacity: 1,
-      lineCap: "round",
-      lineJoin: "round"
-    };
-  }
-
-  buildPolygonStyle(symbol) {
-    return {
-      color: this.resolveSymbolColor(symbol?.outline?.color, "#000000"),
-      weight: this.resolvePositiveNumber(symbol?.outline?.width, 1),
-      opacity: 1,
-      fillColor: this.resolveSymbolColor(symbol?.color, DEFAULT_POLYGON_COLOR),
-      fillOpacity: this.resolveColorAlpha(symbol?.color, 0.35),
-      dashArray: this.resolveLineDashArray(symbol?.style)
-    };
-  }
-
-  resolveLineDashArray(styleName) {
-    const normalizedStyle = this.normalizeString(styleName)?.toLowerCase();
-
-    switch (normalizedStyle) {
-      case "dash":
-      case "short-dash":
-      case "long-dash":
-        return "8 6";
-      case "dot":
-      case "short-dot":
-        return "2 6";
-      case "dash-dot":
-      case "short-dash-dot":
-        return "8 4 2 4";
-      default:
-        return null;
-    }
-  }
-
-  resolveSymbolColor(inputColor, fallbackColor) {
-    if (Array.isArray(inputColor)) {
-      const [red, green, blue, alpha] = inputColor;
-      const numericAlpha = this.toNumber(alpha);
-
-      if (
-        Number.isFinite(this.toNumber(red)) &&
-        Number.isFinite(this.toNumber(green)) &&
-        Number.isFinite(this.toNumber(blue))
-      ) {
-        if (Number.isFinite(numericAlpha)) {
-          return `rgba(${Number(red)}, ${Number(green)}, ${Number(blue)}, ${numericAlpha})`;
-        }
-
-        return `rgb(${Number(red)}, ${Number(green)}, ${Number(blue)})`;
-      }
-    }
-
-    if (typeof inputColor === "string" && inputColor.trim()) {
-      return inputColor.trim();
-    }
-
-    return fallbackColor;
-  }
-
-  resolveColorAlpha(inputColor, fallbackAlpha) {
-    if (Array.isArray(inputColor) && inputColor.length >= 4) {
-      const numericAlpha = this.toNumber(inputColor[3]);
-      if (Number.isFinite(numericAlpha)) {
-        return numericAlpha;
-      }
-    }
-
-    return fallbackAlpha;
-  }
-
-  resolvePositiveNumber(value, fallbackValue) {
-    const numericValue = this.toNumber(value);
-    return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : fallbackValue;
-  }
-
-  extractPolylineCoordinateSets(geometryRaw) {
-    const parsed = this.safeParseJson(geometryRaw);
-    if (!parsed) {
-      return [];
-    }
-
-    if (Array.isArray(parsed?.snappedPoints)) {
-      const snappedCoordinates = parsed.snappedPoints
-        .map((point) => {
-          const longitude = this.toNumber(
-            point?.location?.longitude ?? point?.location?.lng ?? point?.location?.lon
-          );
-          const latitude = this.toNumber(point?.location?.latitude ?? point?.location?.lat);
-
-          if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
-            return null;
-          }
-
-          return [longitude, latitude];
-        })
-        .filter((point) => Array.isArray(point));
-
-      return snappedCoordinates.length >= 2 ? [snappedCoordinates] : [];
-    }
-
-    if (parsed?.type === "Feature" && parsed.geometry) {
-      return this.extractPolylineCoordinateSets(parsed.geometry);
-    }
-
-    if (parsed?.type === "LineString" && Array.isArray(parsed.coordinates)) {
-      return [parsed.coordinates];
-    }
-
-    if (parsed?.type === "MultiLineString" && Array.isArray(parsed.coordinates)) {
-      return parsed.coordinates.filter((item) => this.isCoordinateSet(item));
-    }
-
-    if (Array.isArray(parsed) && this.isCoordinateSet(parsed)) {
-      return [parsed];
-    }
-
-    if (Array.isArray(parsed) && parsed.every((item) => this.isCoordinateSet(item))) {
-      return parsed;
-    }
-
-    if (Array.isArray(parsed)) {
-      return this.collectCoordinateSetsRecursively(parsed);
-    }
-
-    return [];
-  }
-
-  extractPolygonCoordinateSets(geometryRaw) {
-    const parsed = this.safeParseJson(geometryRaw);
-    if (!parsed) {
-      return [];
-    }
-
-    if (parsed?.type === "Feature" && parsed.geometry) {
-      return this.extractPolygonCoordinateSets(parsed.geometry);
-    }
-
-    if (parsed?.type === "Polygon" && Array.isArray(parsed.coordinates)) {
-      return [parsed.coordinates];
-    }
-
-    if (parsed?.type === "MultiPolygon" && Array.isArray(parsed.coordinates)) {
-      return parsed.coordinates.filter(
-        (polygon) => Array.isArray(polygon) && polygon.every((ring) => this.isCoordinateSet(ring))
-      );
-    }
-
-    if (Array.isArray(parsed) && this.isCoordinateSet(parsed)) {
-      return [[parsed]];
-    }
-
-    if (Array.isArray(parsed) && parsed.every((item) => this.isCoordinateSet(item))) {
-      return [parsed];
-    }
-
-    if (
-      Array.isArray(parsed) &&
-      parsed.every(
-        (polygon) => Array.isArray(polygon) && polygon.every((ring) => this.isCoordinateSet(ring))
-      )
-    ) {
-      return parsed;
-    }
-
-    return [];
-  }
-
-  collectCoordinateSetsRecursively(value, collector = []) {
-    if (!Array.isArray(value)) {
-      return collector;
-    }
-
-    if (this.isCoordinateSet(value)) {
-      collector.push(value);
-      return collector;
-    }
-
-    value.forEach((item) => this.collectCoordinateSetsRecursively(item, collector));
-    return collector;
-  }
-
-  isCoordinateSet(value) {
-    return (
-      Array.isArray(value) &&
-      value.length > 0 &&
-      value.every((point) => Array.isArray(point) && point.length >= 2)
-    );
-  }
-
-  toLatLngs(coordinates) {
-    if (!Array.isArray(coordinates)) {
-      return [];
-    }
-
-    return coordinates
-      .map((point) => {
-        const longitude = this.toNumber(point?.[0]);
-        const latitude = this.toNumber(point?.[1]);
-
-        if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
-          return null;
-        }
-
-        return [latitude, longitude];
-      })
-      .filter((point) => Array.isArray(point));
-  }
-
-  buildFallbackRecordUrl(recordId) {
-    if (!recordId) {
-      return "#";
-    }
-
-    return `/${encodeURIComponent(recordId)}`;
-  }
-
-  shouldShowWorkLogAction(layer, feature) {
-    const objectApiName = this.normalizeString(
-      feature?.targetObjectApiName || layer?.objectApiName || ""
-    )?.toLowerCase();
-
-    if (objectApiName !== SITE_OBJECT_API_NAME && objectApiName !== SEGMENT_OBJECT_API_NAME) {
-      return false;
-    }
-
-    return Boolean(feature?.canCreateWorkLog || feature?.productionLineAllocationId);
-  }
-
-  buildPopupHtml(layer, feature) {
-    const popupValues = Array.isArray(feature?.popupValues) ? feature.popupValues : [];
-    const escapedName = this.escapeHtml(feature?.name || layer?.mapLayerName || "Record");
-    const escapedRecordId = this.escapeHtml(feature?.recordId || "");
-    const escapedObjectApiName = this.escapeHtml(
-      feature?.targetObjectApiName || layer?.objectApiName || ""
-    );
-    const popupShellStyle = [
-      "display:flex",
-      "flex-direction:column",
-      "gap:0.7rem",
-      "min-width:13rem",
-      "max-width:17rem",
-      "font-family:'Salesforce Sans',Arial,sans-serif",
-      "color:#181818"
-    ].join(";");
-    const titleButtonStyle = [
-      "display:block",
-      "width:100%",
-      "padding:0",
-      "border:0",
-      "background:transparent",
-      "font-family:'Salesforce Sans',Arial,sans-serif",
-      "font-size:0.96rem",
-      "font-weight:700",
-      "line-height:1.3",
-      "color:#0176d3",
-      "text-align:left",
-      "text-decoration:none",
-      "word-break:break-word",
-      "cursor:pointer"
-    ].join(";");
-    const valuesWrapStyle = "display:flex;flex-direction:column;gap:0.38rem;";
-    const valueStyle = "font-size:0.84rem;line-height:1.4;color:#181818;word-break:break-word;";
-    const emptyStyle = "font-size:0.8rem;line-height:1.35;color:#5c5c5c;";
-    const footerStyle =
-      "display:flex;justify-content:flex-end;padding-top:0.2rem;border-top:1px solid #eef1f6;";
-    const actionButtonStyle = [
-      "display:inline-flex",
-      "align-items:center",
-      "gap:0.38rem",
-      "border:1px solid #d8dde6",
-      "border-radius:0.45rem",
-      "background:#ffffff",
-      "color:#0176d3",
-      "padding:0.45rem 0.7rem",
-      "font-size:0.78rem",
-      "font-weight:600",
-      "line-height:1",
-      "cursor:pointer"
-    ].join(";");
-    const actionIconStyle = "font-size:0.92rem;line-height:1;";
-
-    const detailRows = popupValues
-      .map((popupValue) => {
-        const value = this.escapeHtml(this.formatPopupValue(popupValue));
-        if (!value) {
-          return "";
-        }
-
-        return `<div style="${valueStyle}">${value}</div>`;
-      })
-      .filter((markup) => Boolean(markup))
-      .join("");
-
-    const actionMarkup = this.shouldShowWorkLogAction(layer, feature)
-      ? `
-        <div style="${footerStyle}">
-          <button
-            type="button"
-            title="Create Work Log"
-            aria-label="Create Work Log"
-            data-worklog-action="true"
-            data-record-id="${escapedRecordId}"
-            data-object-api-name="${escapedObjectApiName}"
-            data-feature-name="${escapedName}"
-            style="${actionButtonStyle}"
-          >
-            <span style="${actionIconStyle}" aria-hidden="true">＋</span>
-            <span>Create Work Log</span>
-          </button>
-        </div>`
-      : "";
-
-    return `
-      <div style="${popupShellStyle}">
-        <div>
-          <button
-            type="button"
-            title="Open record"
-            aria-label="Open record"
-            data-record-action="true"
-            data-record-id="${escapedRecordId}"
-            data-object-api-name="${escapedObjectApiName}"
-            style="${titleButtonStyle}"
-          >
-            ${escapedName}
-          </button>
-        </div>
-        <div style="${valuesWrapStyle}">
-          ${detailRows || `<div style="${emptyStyle}">No popup details configured.</div>`}
-        </div>
-        ${actionMarkup}
-      </div>
-    `;
-  }
-
-  formatPopupValue(popupValue) {
-    const rawValue = popupValue?.displayValue ?? "";
-    const dataType = this.normalizeString(popupValue?.dataType)?.toUpperCase();
-
-    if (dataType === "DOUBLE" || dataType === "CURRENCY" || dataType === "INTEGER") {
-      const numericValue = this.toNumber(rawValue);
-      if (Number.isFinite(numericValue)) {
-        return numericValue.toLocaleString();
-      }
-    }
-
-    return rawValue;
-  }
-
-  async handleTemplateClick(event) {
-    const recordActionButton = event.target?.closest?.('[data-record-action="true"]');
-    if (recordActionButton) {
-      event.preventDefault();
-      event.stopPropagation();
-
-      const targetRecordId = recordActionButton.dataset.recordId;
-      const targetObjectApiName = recordActionButton.dataset.objectApiName;
-      await this.openRecordInNewTab(targetRecordId, targetObjectApiName);
-      return;
-    }
-
-    const actionButton = event.target?.closest?.('[data-worklog-action="true"]');
-    if (actionButton) {
-      event.preventDefault();
-      event.stopPropagation();
-
-      const targetRecordId = actionButton.dataset.recordId;
-      const targetObjectApiName = actionButton.dataset.objectApiName;
-      const featureName = actionButton.dataset.featureName;
-
-      if (!targetRecordId || !targetObjectApiName) {
-        this.dispatchToast("Work Log Error", "Unable to determine which record was clicked.", "error");
-        return;
-      }
-
-      this.openWorkLogModal({
-        targetRecordId,
-        targetObjectApiName,
-        featureName
-      });
-      return;
-    }
-
-    const clickedInsideFilterUi = Boolean(
-      event.target?.closest?.('[data-filter-panel="true"]') ||
-        event.target?.closest?.('[data-filter-trigger="true"]')
-    );
-
-    if (!clickedInsideFilterUi) {
-      this.closeAllFilterMenus();
-    }
-  }
-
-  openWorkLogModal({ targetRecordId, targetObjectApiName, featureName }) {
-    this.workLogLaunchContext = {
-      targetRecordId,
-      targetObjectApiName,
-      featureName: featureName || ""
-    };
-    this.isWorkLogModalOpen = true;
-  }
-
-  handleWorkLogModalClose() {
-    this.isWorkLogModalOpen = false;
-    this.workLogLaunchContext = null;
-  }
-
-  handleBulkWorkLogModalClose() {
-    this.isBulkWorkLogModalOpen = false;
-    this.clearSelectedFeatures();
-  }
-
-  handleBulkWorkLogCreated() {
-    this.isBulkWorkLogModalOpen = false;
-    this.clearSelectedFeatures();
-    this.lastRequestSignature = null;
-    this.loadProjectMapData();
-  }
-
   resolveLayerIdFromEvent(event) {
     const directLayerId =
       event?.currentTarget?.dataset?.layerId ||
@@ -1838,7 +1356,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       return null;
     }
 
-    return this.uiLayers.find((layer) => layer.slotNumber === slotNumber)?.mapLayerId || null;
+    return this.allLayers.find((layer) => layer.slotNumber === slotNumber)?.mapLayerId || null;
   }
 
   setLayerSelected(layerId, isSelected) {
@@ -1853,7 +1371,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       closeBulkModal: true
     });
 
-    this.uiLayers = this.uiLayers.map((layer) => {
+    this.allLayers = this.allLayers.map((layer) => {
       if (layer.mapLayerId !== layerId) {
         return layer;
       }
@@ -1871,9 +1389,27 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     });
   }
 
+  handleAddLayerToPane(event) {
+    const layerId = this.resolveLayerIdFromEvent(event);
+    if (!layerId) {
+      return;
+    }
+
+    this.setLayerSelected(layerId, true);
+  }
+
+  handleRemoveLayerFromPane(event) {
+    const layerId = this.resolveLayerIdFromEvent(event);
+    if (!layerId) {
+      return;
+    }
+
+    this.setLayerSelected(layerId, false);
+  }
+
   handleLayerSelectionToggle(event) {
     const layerId = this.resolveLayerIdFromEvent(event);
-    const targetLayer = this.uiLayers.find((layer) => layer.mapLayerId === layerId);
+    const targetLayer = this.allLayers.find((layer) => layer.mapLayerId === layerId);
 
     if (!targetLayer) {
       return;
@@ -1882,12 +1418,10 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     this.setLayerSelected(layerId, !targetLayer.isSelected);
   }
 
-  // Backward compatibility with the old markup.
   handleLayerVisibilityChange(event) {
     this.handleLayerSelectionToggle(event);
   }
 
-  // Backward compatibility with the old markup.
   handleLayerVisibilityToggle(event) {
     this.handleLayerSelectionToggle(event);
   }
@@ -1898,7 +1432,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       return;
     }
 
-    this.uiLayers = this.uiLayers.map((layer) => {
+    this.allLayers = this.allLayers.map((layer) => {
       const shouldOpen = layer.mapLayerId === layerId ? !layer.isFilterPanelOpen : false;
       return this.hydrateLayerState({
         ...layer,
@@ -1907,14 +1441,12 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     });
   }
 
-  // Backward compatibility with the old single-select filter trigger.
   handleToggleFilterMenu(event) {
     this.handleToggleFilterPanel(event);
   }
 
-  // Retained as a no-op for backward compatibility with the old markup.
   handleFilterSearchInput() {
-    // no-op
+    // no-op retained for backward compatibility
   }
 
   handleLayerFilterOptionChange(event) {
@@ -1934,7 +1466,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       closeBulkModal: true
     });
 
-    this.uiLayers = this.uiLayers.map((layer) => {
+    this.allLayers = this.allLayers.map((layer) => {
       if (layer.mapLayerId !== layerId) {
         return this.hydrateLayerState({
           ...layer,
@@ -1991,7 +1523,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       closeBulkModal: true
     });
 
-    this.uiLayers = this.uiLayers.map((layer) => {
+    this.allLayers = this.allLayers.map((layer) => {
       if (layer.mapLayerId !== layerId) {
         return layer;
       }
@@ -2014,7 +1546,6 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     });
   }
 
-  // Backward compatibility with the old single-select filter buttons.
   handleFilterOptionSelect(event) {
     const layerId = this.resolveLayerIdFromEvent(event);
     const selectedFilterValue = event.currentTarget?.dataset?.value;
@@ -2030,7 +1561,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       closeBulkModal: true
     });
 
-    this.uiLayers = this.uiLayers.map((layer) => {
+    this.allLayers = this.allLayers.map((layer) => {
       if (layer.mapLayerId !== layerId) {
         return this.hydrateLayerState({
           ...layer,
@@ -2665,6 +2196,679 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     }
 
     return orientationValue > 0 ? 1 : 2;
+  }
+
+  createLeafletLayer(layer, feature) {
+    if (!window.L || !feature) {
+      return null;
+    }
+
+    const popupHtml = this.buildPopupHtml(layer, feature);
+    const symbol = this.resolveFeatureSymbol(layer, feature);
+
+    if (feature.geometryType === "point") {
+      return this.createPointLayer(feature, symbol, popupHtml);
+    }
+
+    if (feature.geometryType === "polyline") {
+      return this.createPolylineLayer(feature, symbol, popupHtml);
+    }
+
+    if (feature.geometryType === "polygon") {
+      return this.createPolygonLayer(feature, symbol, popupHtml);
+    }
+
+    return null;
+  }
+
+  createPointLayer(feature, symbol, popupHtml) {
+    const latitude = this.toNumber(feature.latitude);
+    const longitude = this.toNumber(feature.longitude);
+
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      return null;
+    }
+
+    const pointStyle = this.buildPointLeafletStyle(symbol);
+    const circleMarker = window.L.circleMarker([latitude, longitude], pointStyle);
+
+    if (popupHtml) {
+      circleMarker.bindPopup(popupHtml, { maxWidth: 320 });
+    }
+
+    return circleMarker;
+  }
+
+  createPolylineLayer(feature, symbol, popupHtml) {
+    const coordinateSets = this.extractPolylineCoordinateSets(feature.geometryRaw);
+    if (!coordinateSets.length) {
+      return null;
+    }
+
+    const renderedLayers = [];
+    coordinateSets.forEach((coordinateSet) => {
+      const latLngs = this.toLatLngs(coordinateSet);
+      if (latLngs.length < 2) {
+        return;
+      }
+
+      const outlineStyle = this.buildPolylineOutlineStyle(symbol);
+      if (outlineStyle) {
+        renderedLayers.push(window.L.polyline(latLngs, outlineStyle));
+      }
+
+      renderedLayers.push(window.L.polyline(latLngs, this.buildPolylineStyle(symbol)));
+    });
+
+    if (!renderedLayers.length) {
+      return null;
+    }
+
+    return this.bundleFeatureLayers(renderedLayers, popupHtml);
+  }
+
+  createPolygonLayer(feature, symbol, popupHtml) {
+    const polygonSets = this.extractPolygonCoordinateSets(feature.geometryRaw);
+    if (!polygonSets.length) {
+      return null;
+    }
+
+    const renderedLayers = [];
+    polygonSets.forEach((polygonSet) => {
+      const latLngRings = polygonSet
+        .map((ring) => this.toLatLngs(ring))
+        .filter((ring) => Array.isArray(ring) && ring.length >= 3);
+
+      if (!latLngRings.length) {
+        return;
+      }
+
+      renderedLayers.push(window.L.polygon(latLngRings, this.buildPolygonStyle(symbol)));
+    });
+
+    if (!renderedLayers.length) {
+      return null;
+    }
+
+    return this.bundleFeatureLayers(renderedLayers, popupHtml);
+  }
+
+  bundleFeatureLayers(layers, popupHtml) {
+    if (layers.length === 1) {
+      if (popupHtml) {
+        layers[0].bindPopup(popupHtml, { maxWidth: 320 });
+      }
+      return layers[0];
+    }
+
+    const featureGroup = window.L.featureGroup(layers);
+    if (popupHtml) {
+      featureGroup.bindPopup(popupHtml, { maxWidth: 320 });
+    }
+    return featureGroup;
+  }
+
+  resolveFeatureSymbol(layer, feature) {
+    const styleConfig = layer?.styleConfig;
+    if (!styleConfig) {
+      return null;
+    }
+
+    const styleValue = feature?.styleValue;
+    if (styleValue && Array.isArray(styleConfig.uniqueValueRules)) {
+      const match = styleConfig.uniqueValueRules.find((rule) => rule.value === styleValue);
+      if (match?.symbol) {
+        return match.symbol;
+      }
+    }
+
+    return styleConfig.defaultSymbol || null;
+  }
+
+  buildPointLeafletStyle(symbol) {
+    const fillColor = this.resolveSymbolColor(symbol?.color, DEFAULT_POINT_COLOR);
+    const outlineColor = this.resolveSymbolColor(symbol?.outline?.color, "#000000");
+    const radius = this.resolvePositiveNumber(symbol?.size, 6);
+    const fillOpacity = this.resolveColorAlpha(symbol?.color, 0.75);
+    const weight = this.resolvePositiveNumber(symbol?.outline?.width, 1);
+
+    return {
+      radius,
+      color: outlineColor,
+      weight,
+      opacity: 1,
+      fillColor,
+      fillOpacity
+    };
+  }
+
+  buildPolylineStyle(symbol) {
+    return {
+      color: this.resolveSymbolColor(symbol?.color, DEFAULT_LINE_COLOR),
+      weight: this.resolvePositiveNumber(symbol?.width, 3),
+      opacity: this.resolveColorAlpha(symbol?.color, 0.85),
+      dashArray: this.resolveLineDashArray(symbol?.style),
+      lineCap: "round",
+      lineJoin: "round"
+    };
+  }
+
+  buildPolylineOutlineStyle(symbol) {
+    const outline = symbol?.outline;
+    if (!outline) {
+      return null;
+    }
+
+    const innerWeight = this.resolvePositiveNumber(symbol?.width, 3);
+    const outlineWidth = this.resolvePositiveNumber(outline?.width, 1);
+
+    return {
+      color: this.resolveSymbolColor(outline?.color, "#000000"),
+      weight: innerWeight + outlineWidth * 2,
+      opacity: 1,
+      lineCap: "round",
+      lineJoin: "round"
+    };
+  }
+
+  buildPolygonStyle(symbol) {
+    return {
+      color: this.resolveSymbolColor(symbol?.outline?.color, "#000000"),
+      weight: this.resolvePositiveNumber(symbol?.outline?.width, 1),
+      opacity: 1,
+      fillColor: this.resolveSymbolColor(symbol?.color, DEFAULT_POLYGON_COLOR),
+      fillOpacity: this.resolveColorAlpha(symbol?.color, 0.35),
+      dashArray: this.resolveLineDashArray(symbol?.style)
+    };
+  }
+
+  resolveLineDashArray(styleName) {
+    const normalizedStyle = this.normalizeString(styleName)?.toLowerCase();
+
+    switch (normalizedStyle) {
+      case "dash":
+      case "short-dash":
+      case "long-dash":
+        return "8 6";
+      case "dot":
+      case "short-dot":
+        return "2 6";
+      case "dash-dot":
+      case "short-dash-dot":
+        return "8 4 2 4";
+      default:
+        return null;
+    }
+  }
+
+  resolveSymbolColor(inputColor, fallbackColor) {
+    if (Array.isArray(inputColor)) {
+      const [red, green, blue, alpha] = inputColor;
+      const numericAlpha = this.toNumber(alpha);
+
+      if (
+        Number.isFinite(this.toNumber(red)) &&
+        Number.isFinite(this.toNumber(green)) &&
+        Number.isFinite(this.toNumber(blue))
+      ) {
+        if (Number.isFinite(numericAlpha)) {
+          return `rgba(${Number(red)}, ${Number(green)}, ${Number(blue)}, ${numericAlpha})`;
+        }
+
+        return `rgb(${Number(red)}, ${Number(green)}, ${Number(blue)})`;
+      }
+    }
+
+    if (typeof inputColor === "string" && inputColor.trim()) {
+      return inputColor.trim();
+    }
+
+    return fallbackColor;
+  }
+
+  resolveColorAlpha(inputColor, fallbackAlpha) {
+    if (Array.isArray(inputColor) && inputColor.length >= 4) {
+      const numericAlpha = this.toNumber(inputColor[3]);
+      if (Number.isFinite(numericAlpha)) {
+        return numericAlpha;
+      }
+    }
+
+    return fallbackAlpha;
+  }
+
+  resolvePositiveNumber(value, fallbackValue) {
+    const numericValue = this.toNumber(value);
+    return Number.isFinite(numericValue) && numericValue > 0 ? numericValue : fallbackValue;
+  }
+
+  parseGeometryValue(value) {
+    if (value === null || value === undefined || value === "") {
+      return null;
+    }
+
+    if (typeof value === "string") {
+      const trimmedValue = value.trim();
+      if (!trimmedValue) {
+        return null;
+      }
+
+      try {
+        return JSON.parse(trimmedValue);
+      } catch (error) {
+        return null;
+      }
+    }
+
+    if (typeof value === "object") {
+      return value;
+    }
+
+    return null;
+  }
+
+  normalizePointLike(point) {
+    if (Array.isArray(point) && point.length >= 2) {
+      const longitude = this.toNumber(point[0]);
+      const latitude = this.toNumber(point[1]);
+
+      if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+        return null;
+      }
+
+      return [longitude, latitude];
+    }
+
+    if (point && typeof point === "object") {
+      const longitude = this.toNumber(
+        point.longitude ?? point.lng ?? point.lon ?? point.x ?? point?.location?.longitude ?? point?.location?.lng
+      );
+      const latitude = this.toNumber(
+        point.latitude ?? point.lat ?? point.y ?? point?.location?.latitude ?? point?.location?.lat
+      );
+
+      if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+        return null;
+      }
+
+      return [longitude, latitude];
+    }
+
+    return null;
+  }
+
+  normalizeCoordinateSet(candidate) {
+    if (!Array.isArray(candidate)) {
+      return [];
+    }
+
+    return candidate
+      .map((point) => this.normalizePointLike(point))
+      .filter((point) => Array.isArray(point));
+  }
+
+  normalizeNestedCoordinateSets(candidate) {
+    if (!Array.isArray(candidate)) {
+      return [];
+    }
+
+    if (candidate.length && this.normalizePointLike(candidate[0])) {
+      const normalizedSet = this.normalizeCoordinateSet(candidate);
+      return normalizedSet.length >= 2 ? [normalizedSet] : [];
+    }
+
+    return candidate
+      .map((item) => this.normalizeCoordinateSet(item))
+      .filter((set) => Array.isArray(set) && set.length >= 2);
+  }
+
+  extractPolylineCoordinateSets(geometryRaw) {
+    const parsed = this.parseGeometryValue(geometryRaw);
+    if (!parsed) {
+      return [];
+    }
+
+    if (Array.isArray(parsed?.snappedPoints)) {
+      const snappedCoordinates = parsed.snappedPoints
+        .map((point) => this.normalizePointLike(point))
+        .filter((point) => Array.isArray(point));
+
+      return snappedCoordinates.length >= 2 ? [snappedCoordinates] : [];
+    }
+
+    if (parsed?.type === "Feature" && parsed.geometry) {
+      return this.extractPolylineCoordinateSets(parsed.geometry);
+    }
+
+    if (parsed?.geometry) {
+      const geometryResult = this.extractPolylineCoordinateSets(parsed.geometry);
+      if (geometryResult.length) {
+        return geometryResult;
+      }
+    }
+
+    if (parsed?.type === "LineString" && Array.isArray(parsed.coordinates)) {
+      return this.normalizeNestedCoordinateSets([parsed.coordinates]);
+    }
+
+    if (parsed?.type === "MultiLineString" && Array.isArray(parsed.coordinates)) {
+      return this.normalizeNestedCoordinateSets(parsed.coordinates);
+    }
+
+    if (Array.isArray(parsed?.paths)) {
+      return this.normalizeNestedCoordinateSets(parsed.paths);
+    }
+
+    if (Array.isArray(parsed?.path)) {
+      return this.normalizeNestedCoordinateSets([parsed.path]);
+    }
+
+    if (Array.isArray(parsed?.coordinates)) {
+      const directCoordinates = this.normalizeNestedCoordinateSets(parsed.coordinates);
+      if (directCoordinates.length) {
+        return directCoordinates;
+      }
+
+      return this.normalizeNestedCoordinateSets([parsed.coordinates]);
+    }
+
+    if (Array.isArray(parsed)) {
+      const normalizedDirect = this.normalizeNestedCoordinateSets(parsed);
+      if (normalizedDirect.length) {
+        return normalizedDirect;
+      }
+
+      const singleSet = this.normalizeCoordinateSet(parsed);
+      return singleSet.length >= 2 ? [singleSet] : [];
+    }
+
+    return [];
+  }
+
+  extractPolygonCoordinateSets(geometryRaw) {
+    const parsed = this.parseGeometryValue(geometryRaw);
+    if (!parsed) {
+      return [];
+    }
+
+    if (parsed?.type === "Feature" && parsed.geometry) {
+      return this.extractPolygonCoordinateSets(parsed.geometry);
+    }
+
+    if (parsed?.geometry) {
+      const geometryResult = this.extractPolygonCoordinateSets(parsed.geometry);
+      if (geometryResult.length) {
+        return geometryResult;
+      }
+    }
+
+    if (parsed?.type === "Polygon" && Array.isArray(parsed.coordinates)) {
+      return [
+        parsed.coordinates
+          .map((ring) => this.normalizeCoordinateSet(ring))
+          .filter((ring) => ring.length >= 3)
+      ].filter((polygon) => polygon.length);
+    }
+
+    if (parsed?.type === "MultiPolygon" && Array.isArray(parsed.coordinates)) {
+      return parsed.coordinates
+        .map((polygon) =>
+          polygon
+            .map((ring) => this.normalizeCoordinateSet(ring))
+            .filter((ring) => ring.length >= 3)
+        )
+        .filter((polygon) => polygon.length);
+    }
+
+    if (Array.isArray(parsed?.rings)) {
+      const rings = parsed.rings
+        .map((ring) => this.normalizeCoordinateSet(ring))
+        .filter((ring) => ring.length >= 3);
+
+      return rings.length ? [rings] : [];
+    }
+
+    if (Array.isArray(parsed)) {
+      if (parsed.length && Array.isArray(parsed[0]) && Array.isArray(parsed[0][0])) {
+        const polygon = parsed
+          .map((ring) => this.normalizeCoordinateSet(ring))
+          .filter((ring) => ring.length >= 3);
+
+        return polygon.length ? [polygon] : [];
+      }
+    }
+
+    return [];
+  }
+
+  toLatLngs(coordinates) {
+    if (!Array.isArray(coordinates)) {
+      return [];
+    }
+
+    return coordinates
+      .map((point) => {
+        const longitude = this.toNumber(point?.[0]);
+        const latitude = this.toNumber(point?.[1]);
+
+        if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
+          return null;
+        }
+
+        return [latitude, longitude];
+      })
+      .filter((point) => Array.isArray(point));
+  }
+
+  buildFallbackRecordUrl(recordId) {
+    if (!recordId) {
+      return "#";
+    }
+
+    return `/${encodeURIComponent(recordId)}`;
+  }
+
+  shouldShowWorkLogAction(layer, feature) {
+    const objectApiName = this.normalizeString(
+      feature?.targetObjectApiName || layer?.objectApiName || ""
+    )?.toLowerCase();
+
+    if (objectApiName !== SITE_OBJECT_API_NAME && objectApiName !== SEGMENT_OBJECT_API_NAME) {
+      return false;
+    }
+
+    return Boolean(feature?.canCreateWorkLog || feature?.productionLineAllocationId);
+  }
+
+  buildPopupHtml(layer, feature) {
+    const popupValues = Array.isArray(feature?.popupValues) ? feature.popupValues : [];
+    const escapedName = this.escapeHtml(feature?.name || layer?.mapLayerName || "Record");
+    const escapedRecordId = this.escapeHtml(feature?.recordId || "");
+    const escapedObjectApiName = this.escapeHtml(
+      feature?.targetObjectApiName || layer?.objectApiName || ""
+    );
+    const popupShellStyle = [
+      "display:flex",
+      "flex-direction:column",
+      "gap:0.7rem",
+      "min-width:13rem",
+      "max-width:17rem",
+      "font-family:'Salesforce Sans',Arial,sans-serif",
+      "color:#181818"
+    ].join(";");
+    const titleButtonStyle = [
+      "display:block",
+      "width:100%",
+      "padding:0",
+      "border:0",
+      "background:transparent",
+      "font-family:'Salesforce Sans',Arial,sans-serif",
+      "font-size:0.96rem",
+      "font-weight:700",
+      "line-height:1.3",
+      "color:#0176d3",
+      "text-align:left",
+      "text-decoration:none",
+      "word-break:break-word",
+      "cursor:pointer"
+    ].join(";");
+    const valuesWrapStyle = "display:flex;flex-direction:column;gap:0.38rem;";
+    const valueStyle = "font-size:0.84rem;line-height:1.4;color:#181818;word-break:break-word;";
+    const emptyStyle = "font-size:0.8rem;line-height:1.35;color:#5c5c5c;";
+    const footerStyle =
+      "display:flex;justify-content:flex-end;padding-top:0.2rem;border-top:1px solid #eef1f6;";
+    const actionButtonStyle = [
+      "display:inline-flex",
+      "align-items:center",
+      "gap:0.38rem",
+      "border:1px solid #d8dde6",
+      "border-radius:0.45rem",
+      "background:#ffffff",
+      "color:#0176d3",
+      "padding:0.45rem 0.7rem",
+      "font-size:0.78rem",
+      "font-weight:600",
+      "line-height:1",
+      "cursor:pointer"
+    ].join(";");
+    const actionIconStyle = "font-size:0.92rem;line-height:1;";
+
+    const detailRows = popupValues
+      .map((popupValue) => {
+        const value = this.escapeHtml(this.formatPopupValue(popupValue));
+        if (!value) {
+          return "";
+        }
+
+        return `<div style="${valueStyle}">${value}</div>`;
+      })
+      .filter((markup) => Boolean(markup))
+      .join("");
+
+    const actionMarkup = this.shouldShowWorkLogAction(layer, feature)
+      ? `
+        <div style="${footerStyle}">
+          <button
+            type="button"
+            title="Create Work Log"
+            aria-label="Create Work Log"
+            data-worklog-action="true"
+            data-record-id="${escapedRecordId}"
+            data-object-api-name="${escapedObjectApiName}"
+            data-feature-name="${escapedName}"
+            style="${actionButtonStyle}"
+          >
+            <span style="${actionIconStyle}" aria-hidden="true">＋</span>
+            <span>Create Work Log</span>
+          </button>
+        </div>`
+      : "";
+
+    return `
+      <div style="${popupShellStyle}">
+        <div>
+          <button
+            type="button"
+            title="Open record"
+            aria-label="Open record"
+            data-record-action="true"
+            data-record-id="${escapedRecordId}"
+            data-object-api-name="${escapedObjectApiName}"
+            style="${titleButtonStyle}"
+          >
+            ${escapedName}
+          </button>
+        </div>
+        <div style="${valuesWrapStyle}">
+          ${detailRows || `<div style="${emptyStyle}">No popup details configured.</div>`}
+        </div>
+        ${actionMarkup}
+      </div>
+    `;
+  }
+
+  formatPopupValue(popupValue) {
+    const rawValue = popupValue?.displayValue ?? "";
+    const dataType = this.normalizeString(popupValue?.dataType)?.toUpperCase();
+
+    if (dataType === "DOUBLE" || dataType === "CURRENCY" || dataType === "INTEGER") {
+      const numericValue = this.toNumber(rawValue);
+      if (Number.isFinite(numericValue)) {
+        return numericValue.toLocaleString();
+      }
+    }
+
+    return rawValue;
+  }
+
+  async handleTemplateClick(event) {
+    const recordActionButton = event.target?.closest?.('[data-record-action="true"]');
+    if (recordActionButton) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const targetRecordId = recordActionButton.dataset.recordId;
+      const targetObjectApiName = recordActionButton.dataset.objectApiName;
+      await this.openRecordInNewTab(targetRecordId, targetObjectApiName);
+      return;
+    }
+
+    const actionButton = event.target?.closest?.('[data-worklog-action="true"]');
+    if (actionButton) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const targetRecordId = actionButton.dataset.recordId;
+      const targetObjectApiName = actionButton.dataset.objectApiName;
+      const featureName = actionButton.dataset.featureName;
+
+      if (!targetRecordId || !targetObjectApiName) {
+        this.dispatchToast("Work Log Error", "Unable to determine which record was clicked.", "error");
+        return;
+      }
+
+      this.openWorkLogModal({
+        targetRecordId,
+        targetObjectApiName,
+        featureName
+      });
+      return;
+    }
+
+    const clickedInsideFilterUi = Boolean(
+      event.target?.closest?.('[data-filter-panel="true"]') ||
+        event.target?.closest?.('[data-filter-trigger="true"]')
+    );
+
+    if (!clickedInsideFilterUi) {
+      this.closeAllFilterMenus();
+    }
+  }
+
+  openWorkLogModal({ targetRecordId, targetObjectApiName, featureName }) {
+    this.workLogLaunchContext = {
+      targetRecordId,
+      targetObjectApiName,
+      featureName: featureName || ""
+    };
+    this.isWorkLogModalOpen = true;
+  }
+
+  handleWorkLogModalClose() {
+    this.isWorkLogModalOpen = false;
+    this.workLogLaunchContext = null;
+  }
+
+  handleBulkWorkLogModalClose() {
+    this.isBulkWorkLogModalOpen = false;
+    this.clearSelectedFeatures();
+  }
+
+  handleBulkWorkLogCreated() {
+    this.isBulkWorkLogModalOpen = false;
+    this.clearSelectedFeatures();
+    this.lastRequestSignature = null;
+    this.loadProjectMapData();
   }
 
   async handleToggleMapExpanded() {
