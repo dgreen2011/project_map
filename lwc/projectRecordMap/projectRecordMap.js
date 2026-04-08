@@ -410,8 +410,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     this.basemapHasLoaded = false;
     this.tileLayer = window.L.tileLayer(basemap.url, {
       attribution: basemap.attribution,
-      maxZoom: 22,
-      crossOrigin: true
+      maxZoom: 22
     });
 
     this.tileLayer.on("tileerror", () => {
@@ -1338,6 +1337,11 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   resolveLayerIdFromEvent(event) {
+    const detailLayerId = event?.detail?.layerId || event?.detail?.mapLayerId;
+    if (detailLayerId) {
+      return detailLayerId;
+    }
+
     const directLayerId =
       event?.currentTarget?.dataset?.layerId ||
       event?.target?.dataset?.layerId ||
@@ -1357,6 +1361,25 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     }
 
     return this.allLayers.find((layer) => layer.slotNumber === slotNumber)?.mapLayerId || null;
+  }
+
+  resolveFilterChangeFromEvent(event) {
+    const detailChecked = event?.detail?.checked;
+
+    return {
+      layerId: this.resolveLayerIdFromEvent(event),
+      fieldPath:
+        event?.detail?.fieldPath ||
+        event?.target?.dataset?.fieldPath ||
+        event?.currentTarget?.dataset?.fieldPath,
+      optionValue:
+        event?.detail?.value ||
+        event?.detail?.optionValue ||
+        event?.target?.dataset?.value ||
+        event?.currentTarget?.dataset?.value,
+      isChecked:
+        typeof detailChecked === "boolean" ? detailChecked : Boolean(event?.target?.checked)
+    };
   }
 
   setLayerSelected(layerId, isSelected) {
@@ -1450,10 +1473,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   handleLayerFilterOptionChange(event) {
-    const layerId = this.resolveLayerIdFromEvent(event);
-    const fieldPath = event.target?.dataset?.fieldPath;
-    const optionValue = event.target?.dataset?.value;
-    const isChecked = Boolean(event.target?.checked);
+    const { layerId, fieldPath, optionValue, isChecked } = this.resolveFilterChangeFromEvent(event);
 
     if (!layerId || !fieldPath || !optionValue) {
       return;
@@ -2481,10 +2501,19 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
     if (point && typeof point === "object") {
       const longitude = this.toNumber(
-        point.longitude ?? point.lng ?? point.lon ?? point.x ?? point?.location?.longitude ?? point?.location?.lng
+        point.longitude ??
+          point.lng ??
+          point.lon ??
+          point.x ??
+          point?.location?.longitude ??
+          point?.location?.lng
       );
       const latitude = this.toNumber(
-        point.latitude ?? point.lat ?? point.y ?? point?.location?.latitude ?? point?.location?.lat
+        point.latitude ??
+          point.lat ??
+          point.y ??
+          point?.location?.latitude ??
+          point?.location?.lat
       );
 
       if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
@@ -2801,6 +2830,19 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     return rawValue;
   }
 
+  isEventFromLayerPanel(event) {
+    const isLayerPanelNode = (node) =>
+      node?.tagName === "C-PROJECT-RECORD-MAP-LAYER-PANEL" ||
+      node?.localName === "c-project-record-map-layer-panel";
+
+    if (isLayerPanelNode(event?.target)) {
+      return true;
+    }
+
+    const path = typeof event?.composedPath === "function" ? event.composedPath() : [];
+    return path.some((node) => isLayerPanelNode(node));
+  }
+
   async handleTemplateClick(event) {
     const recordActionButton = event.target?.closest?.('[data-record-action="true"]');
     if (recordActionButton) {
@@ -2832,6 +2874,10 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
         targetObjectApiName,
         featureName
       });
+      return;
+    }
+
+    if (this.isEventFromLayerPanel(event)) {
       return;
     }
 
