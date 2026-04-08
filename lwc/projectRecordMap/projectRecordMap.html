@@ -51,14 +51,21 @@
 
         <template if:true={showNoConfiguredLayers}>
           <div class="message message-info">
-            Add one or more Map Layer Record Id values in the Lightning App Builder component
-            settings to render layers on this Project page.
+            No Map Layers are currently available for the Project Map. Add supported Sitetracker
+            Map Layer records and use the Default Layer on Project Map checkbox when you want a
+            layer to appear automatically.
+          </div>
+        </template>
+
+        <template if:true={showNoSelectedLayers}>
+          <div class="message message-info">
+            Add one or more layers from the left panel to display them on the map.
           </div>
         </template>
 
         <template if:true={showNoVisibleFeatures}>
           <div class="message message-info">
-            No visible features matched the current layer visibility and filter selections.
+            No visible features matched the current layer selections and filter choices.
           </div>
         </template>
 
@@ -78,38 +85,77 @@
               </div>
 
               <template for:each={uiLayers} for:item="layer">
-                <section key={layer.slotNumber} class="layer-card">
+                <section key={layer.mapLayerId} class="layer-card">
                   <div class="layer-card-header">
                     <div class="layer-card-title-wrap">
-                      <div class="layer-card-title">{layer.mapLayerName}</div>
+                      <div class="layer-card-title-row">
+                        <div class="layer-card-title">{layer.mapLayerName}</div>
+
+                        <template if:true={layer.isDefaultSelected}>
+                          <span class="layer-default-badge">Default</span>
+                        </template>
+                      </div>
+
+                      <template if:true={layer.isSelected}>
+                        <div class="layer-card-subtitle">
+                          {layer.visibleFeatureCount} visible feature(s)
+                        </div>
+                      </template>
                     </div>
 
-                    <template if:true={layer.isVisible}>
-                      <button
-                        class="layer-visibility-button layer-visibility-button-visible"
-                        type="button"
-                        data-slot={layer.slotNumber}
-                        onclick={handleLayerVisibilityToggle}
-                        title="Hide layer"
-                        aria-label="Hide layer"
-                      >
-                        Shown
-                      </button>
-                    </template>
+                    <div class="layer-card-actions">
+                      <template if:true={layer.hasFilterControl}>
+                        <button
+                          class="layer-icon-button"
+                          type="button"
+                          data-layer-id={layer.mapLayerId}
+                          data-filter-trigger="true"
+                          onclick={handleToggleFilterPanel}
+                          title="Adjust layer filters"
+                          aria-label="Adjust layer filters"
+                        >
+                          <lightning-icon
+                            icon-name="utility:filterList"
+                            size="x-small"
+                            alternative-text="Filters"
+                          ></lightning-icon>
+                        </button>
+                      </template>
 
-                    <template if:false={layer.isVisible}>
-                      <button
-                        class="layer-visibility-button layer-visibility-button-hidden"
-                        type="button"
-                        data-slot={layer.slotNumber}
-                        onclick={handleLayerVisibilityToggle}
-                        title="Show layer"
-                        aria-label="Show layer"
-                      >
-                        Hidden
-                      </button>
-                    </template>
+                      <template if:true={layer.isSelected}>
+                        <button
+                          class="layer-visibility-button layer-visibility-button-visible"
+                          type="button"
+                          data-layer-id={layer.mapLayerId}
+                          onclick={handleLayerSelectionToggle}
+                          title={layer.selectionButtonTitle}
+                          aria-label={layer.selectionButtonTitle}
+                        >
+                          Remove
+                        </button>
+                      </template>
+
+                      <template if:false={layer.isSelected}>
+                        <button
+                          class="layer-visibility-button layer-visibility-button-hidden"
+                          type="button"
+                          data-layer-id={layer.mapLayerId}
+                          onclick={handleLayerSelectionToggle}
+                          title={layer.selectionButtonTitle}
+                          aria-label={layer.selectionButtonTitle}
+                        >
+                          Add
+                        </button>
+                      </template>
+                    </div>
                   </div>
+
+                  <template if:true={layer.hasFilterControl}>
+                    <div class="layer-filter-summary-row">
+                      <div class="layer-filter-summary-label">Filters</div>
+                      <div class="layer-filter-summary-value">{layer.filterSummaryText}</div>
+                    </div>
+                  </template>
 
                   <template if:true={layer.hasError}>
                     <div class="message message-error layer-inline-message">
@@ -128,52 +174,53 @@
                     </div>
                   </template>
 
-                  <template if:true={layer.hasFilterControl}>
-                    <div class="filter-block" data-filter-block="true">
-                      <div class="filter-label">{layer.filterFieldLabel}</div>
+                  <template if:true={layer.isFilterPanelOpen}>
+                    <div class="layer-filter-panel" data-filter-panel="true">
+                      <div class="layer-filter-panel-header">
+                        <div class="layer-filter-panel-title">Layer Filters</div>
 
-                      <button
-                        class="filter-trigger"
-                        type="button"
-                        data-slot={layer.slotNumber}
-                        data-filter-trigger="true"
-                        onclick={handleToggleFilterMenu}
-                      >
-                        <span class="filter-trigger-text">{layer.selectedFilterLabel}</span>
-                        <span class="filter-trigger-icon">▾</span>
-                      </button>
+                        <button
+                          class="layer-filter-clear-button"
+                          type="button"
+                          data-layer-id={layer.mapLayerId}
+                          onclick={handleClearLayerFilters}
+                          title="Clear all filters"
+                          aria-label="Clear all filters"
+                        >
+                          Clear
+                        </button>
+                      </div>
 
-                      <template if:true={layer.isFilterMenuOpen}>
-                        <div class="filter-menu" data-filter-menu="true">
-                          <input
-                            class="filter-search-input"
-                            type="search"
-                            placeholder="Search"
-                            value={layer.filterSearchText}
-                            data-slot={layer.slotNumber}
-                            data-filter-search="true"
-                            oninput={handleFilterSearchInput}
-                          />
+                      <template for:each={layer.filterFields} for:item="filterField">
+                        <template if:true={filterField.hasOptions}>
+                          <section key={filterField.fieldPath} class="layer-filter-group">
+                            <div class="layer-filter-group-header">
+                              <div class="layer-filter-field-label">{filterField.fieldLabel}</div>
 
-                          <div class="filter-option-list">
-                            <template
-                              for:each={layer.filteredFilterOptions}
-                              for:item="filterOption"
-                            >
-                              <button
-                                key={filterOption.value}
-                                class="filter-option-button"
-                                type="button"
-                                data-slot={layer.slotNumber}
-                                data-value={filterOption.value}
-                                data-filter-option="true"
-                                onclick={handleFilterOptionSelect}
-                              >
-                                {filterOption.label}
-                              </button>
-                            </template>
-                          </div>
-                        </div>
+                              <template if:true={filterField.hasSelectedValues}>
+                                <div class="layer-filter-field-summary">
+                                  {filterField.selectedSummaryText}
+                                </div>
+                              </template>
+                            </div>
+
+                            <div class="layer-filter-option-list">
+                              <template for:each={filterField.options} for:item="option">
+                                <label key={option.value} class="layer-filter-option">
+                                  <input
+                                    type="checkbox"
+                                    checked={option.checked}
+                                    data-layer-id={layer.mapLayerId}
+                                    data-field-path={filterField.fieldPath}
+                                    data-value={option.value}
+                                    onchange={handleLayerFilterOptionChange}
+                                  />
+                                  <span>{option.label}</span>
+                                </label>
+                              </template>
+                            </div>
+                          </section>
+                        </template>
                       </template>
                     </div>
                   </template>
@@ -230,7 +277,12 @@
   </lightning-card>
 
   <template if:true={isMapExpanded}>
-    <section class="map-popout-shell" role="dialog" aria-modal="true" aria-label="Expanded project map">
+    <section
+      class="map-popout-shell"
+      role="dialog"
+      aria-modal="true"
+      aria-label="Expanded project map"
+    >
       <div class="map-popout-backdrop" onclick={handleCloseMapExpanded}></div>
 
       <div class="map-popout-panel">
@@ -279,38 +331,77 @@
                 </div>
 
                 <template for:each={uiLayers} for:item="layer">
-                  <section key={layer.slotNumber} class="layer-card">
+                  <section key={layer.mapLayerId} class="layer-card">
                     <div class="layer-card-header">
                       <div class="layer-card-title-wrap">
-                        <div class="layer-card-title">{layer.mapLayerName}</div>
+                        <div class="layer-card-title-row">
+                          <div class="layer-card-title">{layer.mapLayerName}</div>
+
+                          <template if:true={layer.isDefaultSelected}>
+                            <span class="layer-default-badge">Default</span>
+                          </template>
+                        </div>
+
+                        <template if:true={layer.isSelected}>
+                          <div class="layer-card-subtitle">
+                            {layer.visibleFeatureCount} visible feature(s)
+                          </div>
+                        </template>
                       </div>
 
-                      <template if:true={layer.isVisible}>
-                        <button
-                          class="layer-visibility-button layer-visibility-button-visible"
-                          type="button"
-                          data-slot={layer.slotNumber}
-                          onclick={handleLayerVisibilityToggle}
-                          title="Hide layer"
-                          aria-label="Hide layer"
-                        >
-                          Shown
-                        </button>
-                      </template>
+                      <div class="layer-card-actions">
+                        <template if:true={layer.hasFilterControl}>
+                          <button
+                            class="layer-icon-button"
+                            type="button"
+                            data-layer-id={layer.mapLayerId}
+                            data-filter-trigger="true"
+                            onclick={handleToggleFilterPanel}
+                            title="Adjust layer filters"
+                            aria-label="Adjust layer filters"
+                          >
+                            <lightning-icon
+                              icon-name="utility:filterList"
+                              size="x-small"
+                              alternative-text="Filters"
+                            ></lightning-icon>
+                          </button>
+                        </template>
 
-                      <template if:false={layer.isVisible}>
-                        <button
-                          class="layer-visibility-button layer-visibility-button-hidden"
-                          type="button"
-                          data-slot={layer.slotNumber}
-                          onclick={handleLayerVisibilityToggle}
-                          title="Show layer"
-                          aria-label="Show layer"
-                        >
-                          Hidden
-                        </button>
-                      </template>
+                        <template if:true={layer.isSelected}>
+                          <button
+                            class="layer-visibility-button layer-visibility-button-visible"
+                            type="button"
+                            data-layer-id={layer.mapLayerId}
+                            onclick={handleLayerSelectionToggle}
+                            title={layer.selectionButtonTitle}
+                            aria-label={layer.selectionButtonTitle}
+                          >
+                            Remove
+                          </button>
+                        </template>
+
+                        <template if:false={layer.isSelected}>
+                          <button
+                            class="layer-visibility-button layer-visibility-button-hidden"
+                            type="button"
+                            data-layer-id={layer.mapLayerId}
+                            onclick={handleLayerSelectionToggle}
+                            title={layer.selectionButtonTitle}
+                            aria-label={layer.selectionButtonTitle}
+                          >
+                            Add
+                          </button>
+                        </template>
+                      </div>
                     </div>
+
+                    <template if:true={layer.hasFilterControl}>
+                      <div class="layer-filter-summary-row">
+                        <div class="layer-filter-summary-label">Filters</div>
+                        <div class="layer-filter-summary-value">{layer.filterSummaryText}</div>
+                      </div>
+                    </template>
 
                     <template if:true={layer.hasError}>
                       <div class="message message-error layer-inline-message">
@@ -329,52 +420,53 @@
                       </div>
                     </template>
 
-                    <template if:true={layer.hasFilterControl}>
-                      <div class="filter-block" data-filter-block="true">
-                        <div class="filter-label">{layer.filterFieldLabel}</div>
+                    <template if:true={layer.isFilterPanelOpen}>
+                      <div class="layer-filter-panel" data-filter-panel="true">
+                        <div class="layer-filter-panel-header">
+                          <div class="layer-filter-panel-title">Layer Filters</div>
 
-                        <button
-                          class="filter-trigger"
-                          type="button"
-                          data-slot={layer.slotNumber}
-                          data-filter-trigger="true"
-                          onclick={handleToggleFilterMenu}
-                        >
-                          <span class="filter-trigger-text">{layer.selectedFilterLabel}</span>
-                          <span class="filter-trigger-icon">▾</span>
-                        </button>
+                          <button
+                            class="layer-filter-clear-button"
+                            type="button"
+                            data-layer-id={layer.mapLayerId}
+                            onclick={handleClearLayerFilters}
+                            title="Clear all filters"
+                            aria-label="Clear all filters"
+                          >
+                            Clear
+                          </button>
+                        </div>
 
-                        <template if:true={layer.isFilterMenuOpen}>
-                          <div class="filter-menu" data-filter-menu="true">
-                            <input
-                              class="filter-search-input"
-                              type="search"
-                              placeholder="Search"
-                              value={layer.filterSearchText}
-                              data-slot={layer.slotNumber}
-                              data-filter-search="true"
-                              oninput={handleFilterSearchInput}
-                            />
+                        <template for:each={layer.filterFields} for:item="filterField">
+                          <template if:true={filterField.hasOptions}>
+                            <section key={filterField.fieldPath} class="layer-filter-group">
+                              <div class="layer-filter-group-header">
+                                <div class="layer-filter-field-label">{filterField.fieldLabel}</div>
 
-                            <div class="filter-option-list">
-                              <template
-                                for:each={layer.filteredFilterOptions}
-                                for:item="filterOption"
-                              >
-                                <button
-                                  key={filterOption.value}
-                                  class="filter-option-button"
-                                  type="button"
-                                  data-slot={layer.slotNumber}
-                                  data-value={filterOption.value}
-                                  data-filter-option="true"
-                                  onclick={handleFilterOptionSelect}
-                                >
-                                  {filterOption.label}
-                                </button>
-                              </template>
-                            </div>
-                          </div>
+                                <template if:true={filterField.hasSelectedValues}>
+                                  <div class="layer-filter-field-summary">
+                                    {filterField.selectedSummaryText}
+                                  </div>
+                                </template>
+                              </div>
+
+                              <div class="layer-filter-option-list">
+                                <template for:each={filterField.options} for:item="option">
+                                  <label key={option.value} class="layer-filter-option">
+                                    <input
+                                      type="checkbox"
+                                      checked={option.checked}
+                                      data-layer-id={layer.mapLayerId}
+                                      data-field-path={filterField.fieldPath}
+                                      data-value={option.value}
+                                      onchange={handleLayerFilterOptionChange}
+                                    />
+                                    <span>{option.label}</span>
+                                  </label>
+                                </template>
+                              </div>
+                            </section>
+                          </template>
                         </template>
                       </div>
                     </template>
