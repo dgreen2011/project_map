@@ -3,7 +3,7 @@
     <apiVersion>63.0</apiVersion>
     <isExposed>true</isExposed>
     <masterLabel>Project Record Map</masterLabel>
-    <description>Displays selectable Sitetracker Map Layers on a Project record page, supports default Project Map layers, multi-field layer filters via Field Sets, and supports creating Production Work Logs from Site and Segment map features, including Segment completion path capture.</description>
+    <description>Displays Sitetracker Map Layers on a Project record page with runtime layer selection, default layers, multi-field filters, and Work Log creation.</description>
 
     <targets>
         <target>lightning__RecordPage</target>
@@ -28,28 +28,124 @@
                 name="workLogFieldSetApiName"
                 type="String"
                 label="Production Work Log Field Set API Name"
-                description="Optional field set on sitetracker__Production_Work_Log__c used to control which fields appear in the Create Work Log modal. Example: sitetracker__Create_Work_Logs_Form_GIS"
+                description="Optional field set on sitetracker__Production_Work_Log__c used to control fields shown in the Create Work Log modal."
             />
 
             <property
                 name="siteDetailFieldSetApiName"
                 type="String"
                 label="Site Detail Field Set API Name"
-                description="Optional field set on sitetracker__Site__c used to show Site details below the record name in the Create Work Log modal."
+                description="Optional field set on sitetracker__Site__c used to show Site details in the Create Work Log modal."
             />
 
             <property
                 name="segmentDetailFieldSetApiName"
                 type="String"
                 label="Segment Detail Field Set API Name"
-                description="Optional field set on sitetracker__Segment__c used to show Segment details below the record name in the Create Work Log modal."
+                description="Optional field set on sitetracker__Segment__c used to show Segment details in the Create Work Log modal."
             />
 
             <property
                 name="layerFilterFieldSetApiName"
                 type="String"
                 label="Layer Filter Field Set API Name"
-                description="Optional field set API name used for layer filters. The component will look for this field set on each selected layer's source object and use those fields as multi-select filters."
+                description="Optional field set API name used to define multi-select filters for each selected layer."
+            />
+
+            <!-- Legacy properties retained because the component is already in use on Lightning pages. -->
+            <property
+                name="mapLayerRecordId1"
+                type="String"
+                label="Map Layer Record Id 1"
+                description="Legacy property for the first Sitetracker Map Layer record Id."
+            />
+            <property
+                name="relationshipFieldPathOverride1"
+                type="String"
+                label="Project Relationship Field Override 1"
+                description="Legacy override for the Project relationship field path for layer 1."
+            />
+            <property
+                name="filterFieldPathOverride1"
+                type="String"
+                label="Filter Field Override 1"
+                description="Legacy override for the filter field path for layer 1."
+            />
+
+            <property
+                name="mapLayerRecordId2"
+                type="String"
+                label="Map Layer Record Id 2"
+                description="Legacy property for the second Sitetracker Map Layer record Id."
+            />
+            <property
+                name="relationshipFieldPathOverride2"
+                type="String"
+                label="Project Relationship Field Override 2"
+                description="Legacy override for the Project relationship field path for layer 2."
+            />
+            <property
+                name="filterFieldPathOverride2"
+                type="String"
+                label="Filter Field Override 2"
+                description="Legacy override for the filter field path for layer 2."
+            />
+
+            <property
+                name="mapLayerRecordId3"
+                type="String"
+                label="Map Layer Record Id 3"
+                description="Legacy property for the third Sitetracker Map Layer record Id."
+            />
+            <property
+                name="relationshipFieldPathOverride3"
+                type="String"
+                label="Project Relationship Field Override 3"
+                description="Legacy override for the Project relationship field path for layer 3."
+            />
+            <property
+                name="filterFieldPathOverride3"
+                type="String"
+                label="Filter Field Override 3"
+                description="Legacy override for the filter field path for layer 3."
+            />
+
+            <property
+                name="mapLayerRecordId4"
+                type="String"
+                label="Map Layer Record Id 4"
+                description="Legacy property for the fourth Sitetracker Map Layer record Id."
+            />
+            <property
+                name="relationshipFieldPathOverride4"
+                type="String"
+                label="Project Relationship Field Override 4"
+                description="Legacy override for the Project relationship field path for layer 4."
+            />
+            <property
+                name="filterFieldPathOverride4"
+                type="String"
+                label="Filter Field Override 4"
+                description="Legacy override for the filter field path for layer 4."
+            />
+
+            <property
+                name="mapLayerRecordId5"
+                type="String"
+                label="Map Layer Record Id 5"
+                description="Legacy property for the fifth Sitetracker Map Layer record Id."
+            />
+            <property
+                name="relationshipFieldPathOverride5"
+                type="String"
+                label="Project Relationship Field Override 5"
+                description="Legacy override for the Project relationship field path for layer 5."
+            />
+            <property
+                name="filterFieldPathOverride5"
+                type="String"
+                label="Filter Field Override 5"
+                description="Legacy override for the filter field path for layer 5."
             />
 
             <supportedFormFactors>
