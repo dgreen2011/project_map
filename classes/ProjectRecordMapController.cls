@@ -38,7 +38,9 @@ public with sharing class ProjectRecordMapController {
 
     public class MapRequest {
         @AuraEnabled public Id projectId { get; set; }
+        @AuraEnabled public String layerFilterFieldSetApiName { get; set; }
 
+        // Retained for backward compatibility with prior component configs.
         @AuraEnabled public Id mapLayerRecordId1 { get; set; }
         @AuraEnabled public Id mapLayerRecordId2 { get; set; }
         @AuraEnabled public Id mapLayerRecordId3 { get; set; }
@@ -70,6 +72,7 @@ public with sharing class ProjectRecordMapController {
         @AuraEnabled public String mapLayerName { get; set; }
         @AuraEnabled public String layerType { get; set; }
         @AuraEnabled public String layerStatus { get; set; }
+        @AuraEnabled public Boolean isDefaultSelected { get; set; }
 
         @AuraEnabled public String objectApiName { get; set; }
         @AuraEnabled public String geometryType { get; set; }
@@ -77,10 +80,14 @@ public with sharing class ProjectRecordMapController {
         @AuraEnabled public String relationshipFieldPath { get; set; }
         @AuraEnabled public String relationshipFieldSource { get; set; }
 
+        // Retained for backward compatibility. The first configured filter field, if any,
+        // is also populated here.
         @AuraEnabled public String filterFieldPath { get; set; }
         @AuraEnabled public String filterFieldLabel { get; set; }
         @AuraEnabled public String filterFieldSource { get; set; }
         @AuraEnabled public List<String> filterOptions { get; set; }
+
+        @AuraEnabled public List<FilterFieldConfig> filterFields { get; set; }
 
         @AuraEnabled public String popupFieldsRawJson { get; set; }
         @AuraEnabled public List<PopupFieldConfig> popupFields { get; set; }
@@ -118,6 +125,18 @@ public with sharing class ProjectRecordMapController {
         @AuraEnabled public String relationshipName { get; set; }
     }
 
+    public class FilterFieldConfig {
+        @AuraEnabled public String fieldPath { get; set; }
+        @AuraEnabled public String fieldLabel { get; set; }
+        @AuraEnabled public String dataType { get; set; }
+        @AuraEnabled public List<String> options { get; set; }
+    }
+
+    public class FeatureFilterValue {
+        @AuraEnabled public String fieldPath { get; set; }
+        @AuraEnabled public String value { get; set; }
+    }
+
     public class FeatureResponse {
         @AuraEnabled public Id recordId { get; set; }
         @AuraEnabled public String name { get; set; }
@@ -128,7 +147,11 @@ public with sharing class ProjectRecordMapController {
         @AuraEnabled public Decimal longitude { get; set; }
         @AuraEnabled public String geometrySourceFieldPath { get; set; }
 
+        // Retained for backward compatibility. The first configured filter value, if any,
+        // is also populated here.
         @AuraEnabled public String filterValue { get; set; }
+        @AuraEnabled public List<FeatureFilterValue> filterValues { get; set; }
+
         @AuraEnabled public String styleValue { get; set; }
         @AuraEnabled public Boolean canCreateWorkLog { get; set; }
         @AuraEnabled public Id productionLineAllocationId { get; set; }
@@ -248,6 +271,18 @@ public with sharing class ProjectRecordMapController {
         }
     }
 
+    private class ResolvedFilterFieldDescriptor {
+        public String path;
+        public String label;
+        public String dataType;
+
+        public ResolvedFilterFieldDescriptor(String path, String label, String dataType) {
+            this.path = path;
+            this.label = label;
+            this.dataType = dataType;
+        }
+    }
+
     private class RelationshipResolution {
         public Schema.DescribeFieldResult fieldDescribe;
         public Schema.DescribeSObjectResult relatedDescribe;
@@ -271,45 +306,50 @@ public with sharing class ProjectRecordMapController {
         }
 
         List<RequestedLayerSlot> requestedSlots = buildRequestedLayerSlots(request);
+        Boolean hasExplicitLayerSelection = !requestedSlots.isEmpty();
 
         MapResponse response = new MapResponse();
         response.projectId = request.projectId;
         response.generatedAtIso = Datetime.now().formatGmt('yyyy-MM-dd\'T\'HH:mm:ss\'Z\'');
         response.layers = new List<LayerSlotResponse>();
 
+        Map<Id, sitetracker__Map_Layer__c> mapLayersById = new Map<Id, sitetracker__Map_Layer__c>();
+
+        if (hasExplicitLayerSelection) {
+            Set<Id> mapLayerIds = new Set<Id>();
+            for (RequestedLayerSlot slot : requestedSlots) {
+                mapLayerIds.add(slot.mapLayerId);
+            }
+            mapLayersById = queryMapLayersById(mapLayerIds);
+        } else {
+            Integer slotCounter = 1;
+            for (sitetracker__Map_Layer__c availableLayer : getAvailableProjectMapLayers()) {
+                requestedSlots.add(
+                    new RequestedLayerSlot(
+                        slotCounter,
+                        availableLayer.Id,
+                        null,
+                        null
+                    )
+                );
+                mapLayersById.put(availableLayer.Id, availableLayer);
+                slotCounter++;
+            }
+        }
+
         if (requestedSlots.isEmpty()) {
             return response;
         }
 
-        Set<Id> mapLayerIds = new Set<Id>();
         for (RequestedLayerSlot slot : requestedSlots) {
-            mapLayerIds.add(slot.mapLayerId);
-        }
-
-        Map<Id, sitetracker__Map_Layer__c> mapLayersById = new Map<Id, sitetracker__Map_Layer__c>([
-            SELECT
-                Id,
-                Name,
-                sitetracker__Layer_Type__c,
-                sitetracker__Status__c,
-                sitetracker__Layer_Styling__c,
-                sitetracker__Popup_Fields__c,
-                sitetracker__Relationship__c,
-                sitetracker__Relationship_to_Use__c,
-                sitetracker__Map_Object_Configuration__c,
-                sitetracker__Map_Object_Configuration__r.Id,
-                sitetracker__Map_Object_Configuration__r.Name,
-                sitetracker__Map_Object_Configuration__r.sitetracker__Map_Object__c,
-                sitetracker__Map_Object_Configuration__r.sitetracker__Geometry_Type__c,
-                sitetracker__Map_Object_Configuration__r.sitetracker__Coordinates_Field__c,
-                sitetracker__Map_Object_Configuration__r.sitetracker__Latitude_Field__c,
-                sitetracker__Map_Object_Configuration__r.sitetracker__Longitude_Field__c
-            FROM sitetracker__Map_Layer__c
-            WHERE Id IN :mapLayerIds
-        ]);
-
-        for (RequestedLayerSlot slot : requestedSlots) {
-            response.layers.add(processLayerSlot(request.projectId, slot, mapLayersById.get(slot.mapLayerId)));
+            response.layers.add(
+                processLayerSlot(
+                    request.projectId,
+                    slot,
+                    mapLayersById.get(slot.mapLayerId),
+                    request.layerFilterFieldSetApiName
+                )
+            );
         }
 
         return response;
@@ -742,7 +782,8 @@ public with sharing class ProjectRecordMapController {
     private static LayerSlotResponse processLayerSlot(
         Id projectId,
         RequestedLayerSlot slot,
-        sitetracker__Map_Layer__c mapLayer
+        sitetracker__Map_Layer__c mapLayer,
+        String layerFilterFieldSetApiName
     ) {
         LayerSlotResponse layer = buildEmptyLayerResponse(slot);
 
@@ -755,6 +796,7 @@ public with sharing class ProjectRecordMapController {
         layer.mapLayerName = mapLayer.Name;
         layer.layerType = mapLayer.sitetracker__Layer_Type__c;
         layer.layerStatus = mapLayer.sitetracker__Status__c;
+        layer.isDefaultSelected = mapLayer.Default_Layer_on_Project_Map__c;
         layer.popupFieldsRawJson = mapLayer.sitetracker__Popup_Fields__c;
 
         try {
@@ -812,31 +854,35 @@ public with sharing class ProjectRecordMapController {
             );
             layer.popupFields = popupFields;
 
-            String filterPathRaw = firstNonBlank(
-                slot.filterFieldPathOverride,
-                styleConfig == null ? null : styleConfig.fieldPath
+            List<ResolvedFilterFieldDescriptor> filterFieldDescriptors = getLayerFilterFieldDescriptors(
+                objectApiName,
+                layerFilterFieldSetApiName,
+                layer.warnings
             );
 
-            ResolvedFieldPath filterField = null;
-            if (!String.isBlank(filterPathRaw)) {
-                filterField = validateFieldPath(
+            if (filterFieldDescriptors.isEmpty() && String.isNotBlank(slot.filterFieldPathOverride)) {
+                ResolvedFieldPath overrideFilterField = validateFieldPath(
                     objectApiName,
-                    filterPathRaw,
+                    slot.filterFieldPathOverride,
                     'Filter field'
                 );
-                layer.filterFieldPath = filterField.path;
-                layer.filterFieldLabel = filterField.label;
-                layer.filterFieldSource =
-                    !String.isBlank(slot.filterFieldPathOverride)
-                        ? 'componentOverride'
-                        : 'layerStyling.field';
+                filterFieldDescriptors.add(
+                    new ResolvedFilterFieldDescriptor(
+                        overrideFilterField.path,
+                        overrideFilterField.label,
+                        null
+                    )
+                );
             }
 
             Set<String> selectFieldPaths = new Set<String>();
             selectFieldPaths.add('Id');
             selectFieldPaths.add('Name');
 
-            addFieldPathIfPresent(selectFieldPaths, filterField == null ? null : filterField.path);
+            for (ResolvedFilterFieldDescriptor descriptor : filterFieldDescriptors) {
+                addFieldPathIfPresent(selectFieldPaths, descriptor.path);
+            }
+
             addFieldPathIfPresent(selectFieldPaths, styleConfig == null ? null : styleConfig.fieldPath);
 
             if (isSupportedWorkLogSourceObject(objectApiName)) {
@@ -886,7 +932,11 @@ public with sharing class ProjectRecordMapController {
                 selectFieldPaths
             );
 
-            Set<String> filterOptions = new Set<String>();
+            Map<String, Set<String>> filterOptionsByFieldPath = new Map<String, Set<String>>();
+            for (ResolvedFilterFieldDescriptor descriptor : filterFieldDescriptors) {
+                filterOptionsByFieldPath.put(descriptor.path, new Set<String>());
+            }
+
             Set<String> styleValueOptions = new Set<String>();
             Integer skippedCount = 0;
 
@@ -897,7 +947,7 @@ public with sharing class ProjectRecordMapController {
                     coordinatesFieldPath,
                     latitudeFieldPath,
                     longitudeFieldPath,
-                    filterField == null ? null : filterField.path,
+                    filterFieldDescriptors,
                     styleConfig == null ? null : styleConfig.fieldPath,
                     popupFields,
                     objectApiName
@@ -909,20 +959,89 @@ public with sharing class ProjectRecordMapController {
                 }
 
                 layer.features.add(feature);
-                collectNonBlankOption(filterOptions, feature.filterValue);
+                collectFilterOptions(filterOptionsByFieldPath, feature.filterValues);
                 collectNonBlankOption(styleValueOptions, feature.styleValue);
+            }
+
+            layer.filterFields = buildFilterFieldConfigs(
+                filterFieldDescriptors,
+                filterOptionsByFieldPath
+            );
+
+            if (!layer.filterFields.isEmpty()) {
+                layer.filterFieldPath = layer.filterFields[0].fieldPath;
+                layer.filterFieldLabel = layer.filterFields[0].fieldLabel;
+                layer.filterFieldSource = String.isBlank(layerFilterFieldSetApiName)
+                    ? (String.isNotBlank(slot.filterFieldPathOverride) ? 'componentOverride' : null)
+                    : 'fieldSet';
+                layer.filterOptions = layer.filterFields[0].options;
             }
 
             layer.queriedRecordCount = records.size();
             layer.renderedFeatureCount = layer.features.size();
             layer.skippedRecordCount = skippedCount;
-            layer.filterOptions = toSortedList(filterOptions);
             layer.styleValueOptions = toSortedList(styleValueOptions);
         } catch (Exception ex) {
             layer.errorMessage = reduceException(ex);
         }
 
         return layer;
+    }
+
+    private static Map<Id, sitetracker__Map_Layer__c> queryMapLayersById(Set<Id> mapLayerIds) {
+        if (mapLayerIds == null || mapLayerIds.isEmpty()) {
+            return new Map<Id, sitetracker__Map_Layer__c>();
+        }
+
+        return new Map<Id, sitetracker__Map_Layer__c>([
+            SELECT
+                Id,
+                Name,
+                Default_Layer_on_Project_Map__c,
+                sitetracker__Layer_Type__c,
+                sitetracker__Status__c,
+                sitetracker__Layer_Styling__c,
+                sitetracker__Popup_Fields__c,
+                sitetracker__Relationship__c,
+                sitetracker__Relationship_to_Use__c,
+                sitetracker__Map_Object_Configuration__c,
+                sitetracker__Map_Object_Configuration__r.Id,
+                sitetracker__Map_Object_Configuration__r.Name,
+                sitetracker__Map_Object_Configuration__r.sitetracker__Map_Object__c,
+                sitetracker__Map_Object_Configuration__r.sitetracker__Geometry_Type__c,
+                sitetracker__Map_Object_Configuration__r.sitetracker__Coordinates_Field__c,
+                sitetracker__Map_Object_Configuration__r.sitetracker__Latitude_Field__c,
+                sitetracker__Map_Object_Configuration__r.sitetracker__Longitude_Field__c
+            FROM sitetracker__Map_Layer__c
+            WHERE Id IN :mapLayerIds
+        ]);
+    }
+
+    private static List<sitetracker__Map_Layer__c> getAvailableProjectMapLayers() {
+        return [
+            SELECT
+                Id,
+                Name,
+                Default_Layer_on_Project_Map__c,
+                sitetracker__Layer_Type__c,
+                sitetracker__Status__c,
+                sitetracker__Layer_Styling__c,
+                sitetracker__Popup_Fields__c,
+                sitetracker__Relationship__c,
+                sitetracker__Relationship_to_Use__c,
+                sitetracker__Map_Object_Configuration__c,
+                sitetracker__Map_Object_Configuration__r.Id,
+                sitetracker__Map_Object_Configuration__r.Name,
+                sitetracker__Map_Object_Configuration__r.sitetracker__Map_Object__c,
+                sitetracker__Map_Object_Configuration__r.sitetracker__Geometry_Type__c,
+                sitetracker__Map_Object_Configuration__r.sitetracker__Coordinates_Field__c,
+                sitetracker__Map_Object_Configuration__r.sitetracker__Latitude_Field__c,
+                sitetracker__Map_Object_Configuration__r.sitetracker__Longitude_Field__c
+            FROM sitetracker__Map_Layer__c
+            WHERE sitetracker__Layer_Type__c = :SUPPORTED_LAYER_TYPE
+            AND sitetracker__Map_Object_Configuration__c != null
+            ORDER BY Default_Layer_on_Project_Map__c DESC, Name ASC
+        ];
     }
 
     private static List<SObject> queryLayerRecords(
@@ -951,7 +1070,7 @@ public with sharing class ProjectRecordMapController {
         String coordinatesFieldPath,
         String latitudeFieldPath,
         String longitudeFieldPath,
-        String filterFieldPath,
+        List<ResolvedFilterFieldDescriptor> filterFieldDescriptors,
         String styleFieldPath,
         List<PopupFieldConfig> popupFields,
         String objectApiName
@@ -959,7 +1078,8 @@ public with sharing class ProjectRecordMapController {
         FeatureResponse feature = new FeatureResponse();
         feature.recordId = (Id)recordItem.get('Id');
         feature.name = toDisplayString(recordItem.get('Name'));
-        feature.filterValue = getPathValueAsString(recordItem, filterFieldPath);
+        feature.filterValues = buildFeatureFilterValues(recordItem, filterFieldDescriptors);
+        feature.filterValue = feature.filterValues.isEmpty() ? null : feature.filterValues[0].value;
         feature.styleValue = getPathValueAsString(recordItem, styleFieldPath);
         feature.productionLineAllocationId = (Id)getPathValue(recordItem, FEATURE_PLA_FIELD);
         feature.targetObjectApiName = objectApiName;
@@ -1006,6 +1126,188 @@ public with sharing class ProjectRecordMapController {
         }
 
         return null;
+    }
+
+    private static List<FeatureFilterValue> buildFeatureFilterValues(
+        SObject recordItem,
+        List<ResolvedFilterFieldDescriptor> filterFieldDescriptors
+    ) {
+        List<FeatureFilterValue> filterValues = new List<FeatureFilterValue>();
+
+        if (recordItem == null || filterFieldDescriptors == null || filterFieldDescriptors.isEmpty()) {
+            return filterValues;
+        }
+
+        for (ResolvedFilterFieldDescriptor descriptor : filterFieldDescriptors) {
+            String rawValue = getPathValueAsString(recordItem, descriptor.path);
+            if (String.isBlank(rawValue)) {
+                continue;
+            }
+
+            for (String token : splitFilterValueTokens(rawValue)) {
+                if (String.isBlank(token)) {
+                    continue;
+                }
+
+                FeatureFilterValue filterValue = new FeatureFilterValue();
+                filterValue.fieldPath = descriptor.path;
+                filterValue.value = token;
+                filterValues.add(filterValue);
+            }
+        }
+
+        return filterValues;
+    }
+
+    private static List<String> splitFilterValueTokens(String rawValue) {
+        List<String> tokens = new List<String>();
+
+        if (String.isBlank(rawValue)) {
+            return tokens;
+        }
+
+        if (!rawValue.contains(';')) {
+            tokens.add(rawValue);
+            return tokens;
+        }
+
+        Set<String> seenTokens = new Set<String>();
+        for (String rawToken : rawValue.split(';')) {
+            String normalizedToken = normalizeString(rawToken);
+            if (String.isBlank(normalizedToken) || seenTokens.contains(normalizedToken)) {
+                continue;
+            }
+
+            seenTokens.add(normalizedToken);
+            tokens.add(normalizedToken);
+        }
+
+        if (tokens.isEmpty()) {
+            tokens.add(rawValue);
+        }
+
+        return tokens;
+    }
+
+    private static void collectFilterOptions(
+        Map<String, Set<String>> targetOptionsByFieldPath,
+        List<FeatureFilterValue> featureFilterValues
+    ) {
+        if (targetOptionsByFieldPath == null || featureFilterValues == null) {
+            return;
+        }
+
+        for (FeatureFilterValue featureFilterValue : featureFilterValues) {
+            if (featureFilterValue == null || String.isBlank(featureFilterValue.fieldPath)) {
+                continue;
+            }
+
+            if (!targetOptionsByFieldPath.containsKey(featureFilterValue.fieldPath)) {
+                targetOptionsByFieldPath.put(featureFilterValue.fieldPath, new Set<String>());
+            }
+
+            collectNonBlankOption(
+                targetOptionsByFieldPath.get(featureFilterValue.fieldPath),
+                featureFilterValue.value
+            );
+        }
+    }
+
+    private static List<FilterFieldConfig> buildFilterFieldConfigs(
+        List<ResolvedFilterFieldDescriptor> descriptors,
+        Map<String, Set<String>> optionsByPath
+    ) {
+        List<FilterFieldConfig> filterFields = new List<FilterFieldConfig>();
+
+        if (descriptors == null || descriptors.isEmpty()) {
+            return filterFields;
+        }
+
+        for (ResolvedFilterFieldDescriptor descriptor : descriptors) {
+            FilterFieldConfig filterField = new FilterFieldConfig();
+            filterField.fieldPath = descriptor.path;
+            filterField.fieldLabel = descriptor.label;
+            filterField.dataType = descriptor.dataType;
+            filterField.options = toSortedList(
+                optionsByPath != null && optionsByPath.containsKey(descriptor.path)
+                    ? optionsByPath.get(descriptor.path)
+                    : new Set<String>()
+            );
+            filterFields.add(filterField);
+        }
+
+        return filterFields;
+    }
+
+    private static List<ResolvedFilterFieldDescriptor> getLayerFilterFieldDescriptors(
+        String objectApiName,
+        String fieldSetApiName,
+        List<String> warnings
+    ) {
+        List<ResolvedFilterFieldDescriptor> descriptors = new List<ResolvedFilterFieldDescriptor>();
+        String normalizedFieldSetApiName = normalizeString(fieldSetApiName);
+
+        if (String.isBlank(normalizedFieldSetApiName)) {
+            return descriptors;
+        }
+
+        Schema.DescribeSObjectResult describeResult = getObjectDescribe(objectApiName);
+        Map<String, Schema.FieldSet> fieldSetMap = describeResult.fieldSets.getMap();
+
+        if (!fieldSetMap.containsKey(normalizedFieldSetApiName)) {
+            warnings.add(
+                'Layer filters were not loaded because Field Set was not found on ' +
+                objectApiName + ': ' + normalizedFieldSetApiName
+            );
+            return descriptors;
+        }
+
+        Map<String, Schema.SObjectField> fieldMap = describeResult.fields.getMap();
+        Set<String> seenFieldApiNames = new Set<String>();
+
+        for (Schema.FieldSetMember member : fieldSetMap.get(normalizedFieldSetApiName).getFields()) {
+            String fieldApiName = normalizeString(member.getFieldPath());
+
+            if (String.isBlank(fieldApiName) || seenFieldApiNames.contains(fieldApiName)) {
+                continue;
+            }
+
+            if (fieldApiName.contains('.')) {
+                warnings.add(
+                    'Skipped filter field set entry "' + fieldApiName +
+                    '" because relationship paths are not supported for Project Map filters.'
+                );
+                continue;
+            }
+
+            if (!fieldMap.containsKey(fieldApiName)) {
+                warnings.add(
+                    'Skipped filter field set entry "' + fieldApiName +
+                    '" because the field was not found on ' + objectApiName + '.'
+                );
+                continue;
+            }
+
+            Schema.DescribeFieldResult fieldDescribe = fieldMap.get(fieldApiName).getDescribe();
+            if (!fieldDescribe.isAccessible()) {
+                warnings.add(
+                    'Skipped filter field "' + fieldDescribe.getLabel() +
+                    '" because it is not accessible.'
+                );
+                continue;
+            }
+
+            seenFieldApiNames.add(fieldApiName);
+            descriptors.add(
+                new ResolvedFilterFieldDescriptor(
+                    fieldApiName,
+                    fieldDescribe.getLabel(),
+                    String.valueOf(fieldDescribe.getType())
+                )
+            );
+        }
+
+        return descriptors;
     }
 
     private static List<PopupValue> buildPopupValues(
@@ -1708,7 +2010,9 @@ public with sharing class ProjectRecordMapController {
         LayerSlotResponse response = new LayerSlotResponse();
         response.slotNumber = slot.slotNumber;
         response.mapLayerId = slot.mapLayerId;
+        response.isDefaultSelected = false;
         response.filterOptions = new List<String>();
+        response.filterFields = new List<FilterFieldConfig>();
         response.popupFields = new List<PopupFieldConfig>();
         response.styleValueOptions = new List<String>();
         response.features = new List<FeatureResponse>();
