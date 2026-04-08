@@ -9,8 +9,12 @@ import leafletResource from "@salesforce/resourceUrl/leaflet_1_9_4";
 const ALL_FILTER_VALUE = "__ALL__";
 const DEFAULT_MAP_CENTER = [39.8283, -98.5795];
 const DEFAULT_MAP_ZOOM = 4;
-const DEFAULT_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
-const DEFAULT_TILE_ATTRIBUTION = "&copy; OpenStreetMap contributors";
+
+const SATELLITE_TILE_URL =
+  "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}";
+const SATELLITE_TILE_ATTRIBUTION =
+  "Tiles &copy; Esri &mdash; Source: Esri, Maxar, Earthstar Geographics, and the GIS User Community";
+
 const DEFAULT_POINT_COLOR = "#2f80ed";
 const DEFAULT_LINE_COLOR = "#0b8f86";
 const DEFAULT_POLYGON_COLOR = "#5779c1";
@@ -30,7 +34,9 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   @api workLogFieldSetApiName;
   @api siteDetailFieldSetApiName;
   @api segmentDetailFieldSetApiName;
+  @api layerFilterFieldSetApiName;
 
+  // Retained for backward compatibility with older component configs.
   @api mapLayerRecordId1;
   @api relationshipFieldPathOverride1;
   @api filterFieldPathOverride1;
@@ -113,12 +119,24 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     return `height: ${safeHeight}px;`;
   }
 
+  get hasLegacyConfiguredLayerInputs() {
+    return this.buildLegacyConfiguredLayerInputs().length > 0;
+  }
+
   get hasConfiguredLayers() {
-    return this.buildConfiguredLayerInputs().length > 0;
+    return this.uiLayers.length > 0;
   }
 
   get hasLayerPanels() {
     return this.uiLayers.length > 0;
+  }
+
+  get hasSelectedLayers() {
+    return this.uiLayers.some((layer) => layer.isSelected);
+  }
+
+  get selectedLayerCount() {
+    return this.uiLayers.filter((layer) => layer.isSelected).length;
   }
 
   get showSidePanel() {
@@ -154,9 +172,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   get lassoButtonTitle() {
-    return this.isLassoMode
-      ? "Cancel lasso selection"
-      : "Lasso select Sites and Segments";
+    return this.isLassoMode ? "Cancel lasso selection" : "Lasso select Sites and Segments";
   }
 
   get lassoButtonIcon() {
@@ -164,7 +180,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   get isLassoButtonDisabled() {
-    return !this.mapReady || this.isLoading || !this.hasLayerPanels;
+    return !this.mapReady || this.isLoading || !this.hasSelectedLayers;
   }
 
   get showInlineMapPanel() {
@@ -182,19 +198,25 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   get showNoConfiguredLayers() {
-    return !this.isLoading && !this.errorMessage && !this.hasConfiguredLayers;
+    return !this.isLoading && !this.errorMessage && !this.hasLayerPanels;
+  }
+
+  get showNoSelectedLayers() {
+    return !this.isLoading && !this.errorMessage && this.hasLayerPanels && !this.hasSelectedLayers;
   }
 
   get totalRenderedFeatureCount() {
-    return this.uiLayers.reduce((sum, layer) => sum + (layer.visibleFeatureCount || 0), 0);
+    return this.uiLayers
+      .filter((layer) => layer.isSelected)
+      .reduce((sum, layer) => sum + (layer.visibleFeatureCount || 0), 0);
   }
 
   get showNoVisibleFeatures() {
     return (
       !this.isLoading &&
       !this.errorMessage &&
-      this.hasConfiguredLayers &&
       this.hasLayerPanels &&
+      this.hasSelectedLayers &&
       this.totalRenderedFeatureCount === 0
     );
   }
@@ -204,10 +226,10 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       return "";
     }
 
-    const visibleLayerCount = this.uiLayers.filter((layer) => layer.isVisible).length;
+    const selectedLayerCount = this.selectedLayerCount;
     return `${this.totalRenderedFeatureCount} visible feature${
       this.totalRenderedFeatureCount === 1 ? "" : "s"
-    } across ${visibleLayerCount} visible layer${visibleLayerCount === 1 ? "" : "s"}`;
+    } across ${selectedLayerCount} selected layer${selectedLayerCount === 1 ? "" : "s"}`;
   }
 
   get workLogModalTargetRecordId() {
@@ -308,15 +330,15 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       .addTo(this.map);
 
     this.tileLayer = window.L
-      .tileLayer(DEFAULT_TILE_URL, {
-        attribution: DEFAULT_TILE_ATTRIBUTION,
+      .tileLayer(SATELLITE_TILE_URL, {
+        attribution: SATELLITE_TILE_ATTRIBUTION,
         maxZoom: 22
       })
       .addTo(this.map);
 
     this.tileLayer.on("tileerror", () => {
       this.tileWarningMessage =
-        "Map tiles failed to load. Confirm CSP Trusted Site access for https://tile.openstreetmap.org.";
+        "Satellite tiles failed to load. Confirm CSP Trusted Site access for https://server.arcgisonline.com.";
     });
 
     this.tileLayer.on("load", () => {
@@ -408,6 +430,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   buildRequestPayload() {
     return {
       projectId: this.recordId || null,
+      layerFilterFieldSetApiName: this.normalizeString(this.layerFilterFieldSetApiName),
 
       mapLayerRecordId1: this.normalizeString(this.mapLayerRecordId1),
       relationshipFieldPathOverride1: this.normalizeString(this.relationshipFieldPathOverride1),
@@ -431,7 +454,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     };
   }
 
-  buildConfiguredLayerInputs() {
+  buildLegacyConfiguredLayerInputs() {
     const request = this.buildRequestPayload();
 
     return [
@@ -448,20 +471,13 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       return;
     }
 
+    const shouldPreserveExistingView = this.initialLoadComplete;
+    const viewState = shouldPreserveExistingView ? this.captureMapViewState() : null;
+
     this.cancelLassoMode({
       clearSelection: true,
       closeBulkModal: true
     });
-
-    if (!this.hasConfiguredLayers) {
-      this.errorMessage = "";
-      this.uiLayers = [];
-      this.clearRenderedFeatures();
-      this.resetMapView();
-      this.scheduleMapViewportSync({ fitToBounds: false });
-      this.markInitialLoadComplete();
-      return;
-    }
 
     this.isLoading = true;
     this.errorMessage = "";
@@ -474,7 +490,19 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
       await this.applyResponse(response);
       await this.waitForLayoutStabilization();
-      this.renderVisibleFeatures({ fitToBounds: true });
+
+      if (viewState) {
+        this.renderVisibleFeatures({
+          preserveView: true,
+          viewState
+        });
+      } else {
+        this.renderVisibleFeatures({
+          fitToBounds: true,
+          fallbackToDefault: true
+        });
+      }
+
       await this.waitForLayoutStabilization();
       this.markInitialLoadComplete();
     } catch (error) {
@@ -482,8 +510,17 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       this.uiLayers = [];
       this.clearRenderedFeatures();
       this.clearSelectedFeatures();
-      this.resetMapView();
-      this.scheduleMapViewportSync({ fitToBounds: false });
+
+      if (viewState) {
+        this.scheduleMapViewportSync({
+          preserveView: true,
+          viewState
+        });
+      } else {
+        this.resetMapView();
+        this.scheduleMapViewportSync({ fitToBounds: false });
+      }
+
       this.markInitialLoadComplete();
     } finally {
       this.isLoading = false;
@@ -491,38 +528,33 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   async applyResponse(response) {
-    const previousVisibilityBySlot = {};
-    const previousFilterBySlot = {};
+    const previousStateByLayerId = {};
 
     this.uiLayers.forEach((layer) => {
-      previousVisibilityBySlot[layer.slotNumber] = layer.isVisible;
-      previousFilterBySlot[layer.slotNumber] = layer.selectedFilterValue;
+      previousStateByLayerId[layer.mapLayerId] = {
+        isSelected: Boolean(layer.isSelected),
+        isFilterPanelOpen: Boolean(layer.isFilterPanelOpen),
+        filterSelectionsByFieldPath: this.buildLayerFilterSelectionMap(layer)
+      };
     });
 
     const responseLayers = Array.isArray(response?.layers) ? response.layers : [];
+    const selectAllByDefault = this.hasLegacyConfiguredLayerInputs;
 
-    this.uiLayers = responseLayers.map((layer) => {
-      let normalizedLayer = this.normalizeLayerResponse(layer);
+    this.uiLayers = responseLayers.map((incomingLayer) => {
+      let normalizedLayer = this.normalizeLayerResponse(incomingLayer);
+      const previousState = previousStateByLayerId[normalizedLayer.mapLayerId];
 
-      const priorVisible = previousVisibilityBySlot[normalizedLayer.slotNumber];
-      if (typeof priorVisible === "boolean") {
-        normalizedLayer.isVisible = priorVisible;
+      if (previousState) {
+        normalizedLayer = this.applyPreviousLayerState(normalizedLayer, previousState);
+      } else {
+        normalizedLayer = this.hydrateLayerState({
+          ...normalizedLayer,
+          isSelected: selectAllByDefault ? true : Boolean(normalizedLayer.isDefaultSelected),
+          isFilterPanelOpen: false
+        });
       }
 
-      const priorFilter = previousFilterBySlot[normalizedLayer.slotNumber];
-      if (
-        priorFilter &&
-        normalizedLayer.filterControlOptions.some((option) => option.value === priorFilter)
-      ) {
-        normalizedLayer.selectedFilterValue = priorFilter;
-      }
-
-      normalizedLayer = this.applyFilterMenuState(normalizedLayer, {
-        preserveSearchText: false,
-        preserveMenuState: false
-      });
-
-      normalizedLayer.visibleFeatureCount = this.getFilteredFeatures(normalizedLayer).length;
       return normalizedLayer;
     });
 
@@ -533,19 +565,23 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     const safeFeatures = Array.isArray(layer?.features) ? layer.features : [];
     const safeWarnings = Array.isArray(layer?.warnings) ? layer.warnings : [];
     const safePopupFields = Array.isArray(layer?.popupFields) ? layer.popupFields : [];
-    const safeFilterOptions = Array.isArray(layer?.filterOptions) ? layer.filterOptions : [];
+    const safeFilterFields = Array.isArray(layer?.filterFields) ? layer.filterFields : [];
     const safeStyleValueOptions = Array.isArray(layer?.styleValueOptions)
       ? layer.styleValueOptions
       : [];
 
     const normalizedStyleConfig = this.normalizeStyleConfig(layer?.styleConfig);
+    const normalizedFilterFields = safeFilterFields.map((filterField) =>
+      this.normalizeFilterField(filterField)
+    );
 
-    const normalizedLayer = {
+    return this.hydrateLayerState({
       slotNumber: Number(layer?.slotNumber) || 0,
       mapLayerId: layer?.mapLayerId || "",
       mapLayerName: layer?.mapLayerName || `Layer ${layer?.slotNumber || ""}`.trim(),
       layerType: layer?.layerType || "",
       layerStatus: layer?.layerStatus || "",
+      isDefaultSelected: Boolean(layer?.isDefaultSelected),
       objectApiName: layer?.objectApiName || "",
       geometryType: layer?.geometryType || "",
       relationshipFieldPath: layer?.relationshipFieldPath || "",
@@ -553,6 +589,8 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       filterFieldPath: layer?.filterFieldPath || "",
       filterFieldLabel: layer?.filterFieldLabel || "",
       filterFieldSource: layer?.filterFieldSource || "",
+      filterOptions: Array.isArray(layer?.filterOptions) ? layer.filterOptions : [],
+      filterFields: normalizedFilterFields,
       popupFieldsRawJson: layer?.popupFieldsRawJson || "",
       popupFields: safePopupFields,
       styleConfig: normalizedStyleConfig,
@@ -563,30 +601,29 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       warnings: safeWarnings,
       errorMessage: layer?.errorMessage || "",
       features: safeFeatures.map((feature) => this.normalizeFeatureResponse(layer, feature)),
-      isVisible: true,
-      selectedFilterValue: ALL_FILTER_VALUE,
-      selectedFilterLabel: "All",
-      filterSearchText: "",
-      filteredFilterOptions: [],
-      isFilterMenuOpen: false,
+      isSelected: false,
+      isFilterPanelOpen: false,
       visibleFeatureCount: 0
-    };
+    });
+  }
 
-    normalizedLayer.hasError = Boolean(normalizedLayer.errorMessage);
-    normalizedLayer.hasWarnings = normalizedLayer.warnings.length > 0;
-    normalizedLayer.hasFilterControl =
-      Boolean(normalizedLayer.filterFieldPath) && safeFilterOptions.length > 0;
-    normalizedLayer.filterControlOptions = [
-      { label: "All", value: ALL_FILTER_VALUE },
-      ...safeFilterOptions.map((option) => ({
+  normalizeFilterField(filterField) {
+    const rawOptions = Array.isArray(filterField?.options) ? filterField.options : [];
+    const options = rawOptions
+      .map((option) => this.normalizeString(option))
+      .filter((option) => Boolean(option))
+      .map((option) => ({
         label: option,
-        value: option
-      }))
-    ];
+        value: option,
+        checked: false
+      }));
 
-    return this.applyFilterMenuState(normalizedLayer, {
-      preserveSearchText: false,
-      preserveMenuState: false
+    return this.hydrateFilterFieldState({
+      fieldPath: filterField?.fieldPath || "",
+      fieldLabel: filterField?.fieldLabel || "",
+      dataType: filterField?.dataType || "",
+      options,
+      selectedValues: []
     });
   }
 
@@ -600,6 +637,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       longitude: this.toNumber(feature?.longitude),
       geometrySourceFieldPath: feature?.geometrySourceFieldPath || "",
       filterValue: feature?.filterValue || "",
+      filterValues: this.normalizeFeatureFilterValues(layer, feature),
       styleValue: feature?.styleValue || "",
       popupValues: Array.isArray(feature?.popupValues) ? feature.popupValues : [],
       canCreateWorkLog: Boolean(feature?.canCreateWorkLog),
@@ -611,6 +649,30 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
         feature?.targetObjectApiName || feature?.objectApiName || layer?.objectApiName || ""
       )
     };
+  }
+
+  normalizeFeatureFilterValues(layer, feature) {
+    const incomingFilterValues = Array.isArray(feature?.filterValues) ? feature.filterValues : [];
+
+    if (incomingFilterValues.length) {
+      return incomingFilterValues
+        .map((item) => ({
+          fieldPath: item?.fieldPath || "",
+          value: item?.value || ""
+        }))
+        .filter((item) => item.fieldPath && item.value);
+    }
+
+    if (feature?.filterValue && layer?.filterFieldPath) {
+      return [
+        {
+          fieldPath: layer.filterFieldPath,
+          value: feature.filterValue
+        }
+      ];
+    }
+
+    return [];
   }
 
   normalizeStyleConfig(styleConfig) {
@@ -636,47 +698,184 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     };
   }
 
-  applyFilterMenuState(layer, { preserveSearchText = true, preserveMenuState = true } = {}) {
-    const selectedOption =
-      layer.filterControlOptions.find((option) => option.value === layer.selectedFilterValue) ||
-      layer.filterControlOptions[0] || { label: "All", value: ALL_FILTER_VALUE };
+  hydrateFilterFieldState(filterField) {
+    const selectedValues = Array.isArray(filterField?.selectedValues)
+      ? filterField.selectedValues.filter((value) => Boolean(value))
+      : [];
+    const selectedValueSet = new Set(selectedValues);
 
-    const filterSearchText = preserveSearchText ? layer.filterSearchText || "" : "";
-    const normalizedSearch = this.normalizeString(filterSearchText) || "";
-    const loweredSearch = normalizedSearch.toLowerCase();
-
-    const filteredFilterOptions = loweredSearch
-      ? layer.filterControlOptions.filter((option) =>
-          option.label.toLowerCase().includes(loweredSearch)
-        )
-      : layer.filterControlOptions;
+    const options = Array.isArray(filterField?.options)
+      ? filterField.options.map((option) => ({
+          label: option?.label || option?.value || "",
+          value: option?.value || option?.label || "",
+          checked: selectedValueSet.has(option?.value || option?.label || "")
+        }))
+      : [];
 
     return {
-      ...layer,
-      selectedFilterLabel: selectedOption.label,
-      filterSearchText,
-      filteredFilterOptions,
-      isFilterMenuOpen: preserveMenuState ? Boolean(layer.isFilterMenuOpen) : false
+      ...filterField,
+      options,
+      selectedValues,
+      selectedCount: selectedValues.length,
+      hasOptions: options.length > 0,
+      hasSelectedValues: selectedValues.length > 0,
+      selectedSummaryText: this.buildSelectedValuesText(selectedValues)
     };
   }
 
+  hydrateLayerState(layer) {
+    const nextFilterFields = Array.isArray(layer?.filterFields)
+      ? layer.filterFields.map((filterField) => this.hydrateFilterFieldState(filterField))
+      : [];
+
+    const nextLayer = {
+      ...layer,
+      filterFields: nextFilterFields,
+      hasError: Boolean(layer?.errorMessage),
+      hasWarnings: Array.isArray(layer?.warnings) && layer.warnings.length > 0,
+      hasFilterControl: nextFilterFields.some((filterField) => filterField.hasOptions)
+    };
+
+    const activeFilterCount = this.getAppliedFilterCount(nextLayer);
+    const visibleFeatureCount = this.getFilteredFeatures(nextLayer).length;
+
+    return {
+      ...nextLayer,
+      activeFilterCount,
+      filterSummaryText: this.buildLayerFilterSummaryText(nextLayer, activeFilterCount),
+      selectionButtonLabel: nextLayer.isSelected ? "Remove" : "Add",
+      selectionButtonTitle: nextLayer.isSelected
+        ? "Remove layer from map"
+        : "Add layer to map",
+      visibleFeatureCount
+    };
+  }
+
+  applyPreviousLayerState(layer, previousState) {
+    const filterSelectionsByFieldPath = previousState?.filterSelectionsByFieldPath || {};
+    const nextFilterFields = layer.filterFields.map((filterField) => {
+      const availableValues = new Set(filterField.options.map((option) => option.value));
+      const priorSelectedValues = Array.isArray(filterSelectionsByFieldPath[filterField.fieldPath])
+        ? filterSelectionsByFieldPath[filterField.fieldPath]
+        : [];
+
+      const validSelectedValues = priorSelectedValues.filter((value) => availableValues.has(value));
+
+      return {
+        ...filterField,
+        selectedValues: validSelectedValues
+      };
+    });
+
+    return this.hydrateLayerState({
+      ...layer,
+      isSelected: Boolean(previousState?.isSelected),
+      isFilterPanelOpen: Boolean(previousState?.isFilterPanelOpen),
+      filterFields: nextFilterFields
+    });
+  }
+
+  buildLayerFilterSelectionMap(layer) {
+    const selections = {};
+
+    if (!Array.isArray(layer?.filterFields)) {
+      return selections;
+    }
+
+    layer.filterFields.forEach((filterField) => {
+      selections[filterField.fieldPath] = Array.isArray(filterField.selectedValues)
+        ? [...filterField.selectedValues]
+        : [];
+    });
+
+    return selections;
+  }
+
+  buildSelectedValuesText(values) {
+    if (!Array.isArray(values) || !values.length) {
+      return "All";
+    }
+
+    if (values.length <= 2) {
+      return values.join(", ");
+    }
+
+    return `${values[0]}, ${values[1]} +${values.length - 2}`;
+  }
+
+  buildLayerFilterSummaryText(layer, activeFilterCount = null) {
+    const appliedCount =
+      activeFilterCount === null ? this.getAppliedFilterCount(layer) : activeFilterCount;
+
+    if (!layer?.hasFilterControl) {
+      return "";
+    }
+
+    if (!appliedCount) {
+      return "All";
+    }
+
+    return `${appliedCount} selected`;
+  }
+
+  getAppliedFilterCount(layer) {
+    if (!Array.isArray(layer?.filterFields)) {
+      return 0;
+    }
+
+    return layer.filterFields.reduce(
+      (sum, filterField) => sum + (filterField.selectedCount || 0),
+      0
+    );
+  }
+
   getFilteredFeatures(layer) {
-    if (!layer?.isVisible) {
+    if (!layer?.isSelected) {
       return [];
     }
 
-    if (!layer?.selectedFilterValue || layer.selectedFilterValue === ALL_FILTER_VALUE) {
-      return layer.features;
+    const filterFields = Array.isArray(layer?.filterFields) ? layer.filterFields : [];
+    const appliedFilterFields = filterFields.filter(
+      (filterField) => Array.isArray(filterField.selectedValues) && filterField.selectedValues.length
+    );
+
+    if (!appliedFilterFields.length) {
+      return Array.isArray(layer?.features) ? layer.features : [];
     }
 
-    return layer.features.filter((feature) => feature.filterValue === layer.selectedFilterValue);
+    return (Array.isArray(layer?.features) ? layer.features : []).filter((feature) =>
+      appliedFilterFields.every((filterField) =>
+        this.doesFeatureMatchFilterField(feature, filterField)
+      )
+    );
+  }
+
+  doesFeatureMatchFilterField(feature, filterField) {
+    const selectedValues = Array.isArray(filterField?.selectedValues)
+      ? filterField.selectedValues
+      : [];
+
+    if (!selectedValues.length) {
+      return true;
+    }
+
+    const featureValues = (Array.isArray(feature?.filterValues) ? feature.filterValues : [])
+      .filter((item) => item?.fieldPath === filterField.fieldPath)
+      .map((item) => item?.value)
+      .filter((value) => Boolean(value));
+
+    if (!featureValues.length) {
+      return false;
+    }
+
+    return selectedValues.some((selectedValue) => featureValues.includes(selectedValue));
   }
 
   getSelectableVisibleFeatures() {
     const visibleSelectableFeatures = [];
 
     this.uiLayers.forEach((layer) => {
-      if (!layer || layer.hasError || !layer.isVisible) {
+      if (!layer || layer.hasError || !layer.isSelected) {
         return;
       }
 
@@ -702,18 +901,13 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     );
   }
 
-  closeAllFilterMenus() {
+  closeAllFilterMenus({ exceptLayerId = null } = {}) {
     this.uiLayers = this.uiLayers.map((layer) =>
-      this.applyFilterMenuState(
-        {
-          ...layer,
-          isFilterMenuOpen: false
-        },
-        {
-          preserveSearchText: false,
-          preserveMenuState: true
-        }
-      )
+      this.hydrateLayerState({
+        ...layer,
+        isFilterPanelOpen:
+          exceptLayerId && layer.mapLayerId === exceptLayerId ? layer.isFilterPanelOpen : false
+      })
     );
   }
 
@@ -725,7 +919,12 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     this.renderedFeatureGroup = null;
   }
 
-  renderVisibleFeatures({ fitToBounds = false } = {}) {
+  renderVisibleFeatures({
+    fitToBounds = false,
+    fallbackToDefault = false,
+    preserveView = false,
+    viewState = null
+  } = {}) {
     if (!this.mapReady || !window.L) {
       return;
     }
@@ -737,12 +936,12 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
     this.uiLayers = this.uiLayers.map((layer) => {
       const visibleFeatures = this.getFilteredFeatures(layer);
-      const updatedLayer = {
+      const updatedLayer = this.hydrateLayerState({
         ...layer,
         visibleFeatureCount: visibleFeatures.length
-      };
+      });
 
-      if (!layer.hasError && layer.isVisible) {
+      if (!updatedLayer.hasError && updatedLayer.isSelected) {
         visibleFeatures.forEach((feature) => {
           const leafletLayer = this.createLeafletLayer(updatedLayer, feature);
           if (leafletLayer) {
@@ -761,7 +960,9 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
     this.scheduleMapViewportSync({
       fitToBounds,
-      fallbackToDefault: !hasAnyRenderedFeature
+      fallbackToDefault: !hasAnyRenderedFeature && fallbackToDefault,
+      preserveView,
+      viewState
     });
   }
 
@@ -1561,27 +1762,35 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     }
 
     const actionButton = event.target?.closest?.('[data-worklog-action="true"]');
-    if (!actionButton) {
+    if (actionButton) {
+      event.preventDefault();
+      event.stopPropagation();
+
+      const targetRecordId = actionButton.dataset.recordId;
+      const targetObjectApiName = actionButton.dataset.objectApiName;
+      const featureName = actionButton.dataset.featureName;
+
+      if (!targetRecordId || !targetObjectApiName) {
+        this.dispatchToast("Work Log Error", "Unable to determine which record was clicked.", "error");
+        return;
+      }
+
+      this.openWorkLogModal({
+        targetRecordId,
+        targetObjectApiName,
+        featureName
+      });
       return;
     }
 
-    event.preventDefault();
-    event.stopPropagation();
+    const clickedInsideFilterUi = Boolean(
+      event.target?.closest?.('[data-filter-panel="true"]') ||
+        event.target?.closest?.('[data-filter-trigger="true"]')
+    );
 
-    const targetRecordId = actionButton.dataset.recordId;
-    const targetObjectApiName = actionButton.dataset.objectApiName;
-    const featureName = actionButton.dataset.featureName;
-
-    if (!targetRecordId || !targetObjectApiName) {
-      this.dispatchToast("Work Log Error", "Unable to determine which record was clicked.", "error");
-      return;
+    if (!clickedInsideFilterUi) {
+      this.closeAllFilterMenus();
     }
-
-    this.openWorkLogModal({
-      targetRecordId,
-      targetObjectApiName,
-      featureName
-    });
   }
 
   openWorkLogModal({ targetRecordId, targetObjectApiName, featureName }) {
@@ -1610,77 +1819,115 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     this.loadProjectMapData();
   }
 
-  setLayerVisibility(slotNumber, isVisible) {
+  resolveLayerIdFromEvent(event) {
+    const directLayerId =
+      event?.currentTarget?.dataset?.layerId ||
+      event?.target?.dataset?.layerId ||
+      event?.currentTarget?.dataset?.mapLayerId ||
+      event?.target?.dataset?.mapLayerId;
+
+    if (directLayerId) {
+      return directLayerId;
+    }
+
+    const rawSlot =
+      event?.currentTarget?.dataset?.slot || event?.target?.dataset?.slot || null;
+    const slotNumber = Number(rawSlot);
+
+    if (!Number.isFinite(slotNumber)) {
+      return null;
+    }
+
+    return this.uiLayers.find((layer) => layer.slotNumber === slotNumber)?.mapLayerId || null;
+  }
+
+  setLayerSelected(layerId, isSelected) {
+    if (!layerId) {
+      return;
+    }
+
+    const viewState = this.captureMapViewState();
+
     this.cancelLassoMode({
       clearSelection: true,
       closeBulkModal: true
     });
-    this.closeAllFilterMenus();
-    this.uiLayers = this.uiLayers.map((layer) =>
-      layer.slotNumber === slotNumber ? { ...layer, isVisible } : layer
-    );
-    this.renderVisibleFeatures({ fitToBounds: true });
+
+    this.uiLayers = this.uiLayers.map((layer) => {
+      if (layer.mapLayerId !== layerId) {
+        return layer;
+      }
+
+      return this.hydrateLayerState({
+        ...layer,
+        isSelected,
+        isFilterPanelOpen: isSelected ? layer.isFilterPanelOpen : false
+      });
+    });
+
+    this.renderVisibleFeatures({
+      preserveView: true,
+      viewState
+    });
   }
 
-  handleLayerVisibilityChange(event) {
-    const slotNumber = Number(event.target.dataset.slot);
-    const isVisible = event.target.checked;
-    this.setLayerVisibility(slotNumber, isVisible);
-  }
+  handleLayerSelectionToggle(event) {
+    const layerId = this.resolveLayerIdFromEvent(event);
+    const targetLayer = this.uiLayers.find((layer) => layer.mapLayerId === layerId);
 
-  handleLayerVisibilityToggle(event) {
-    const slotNumber = Number(event.currentTarget.dataset.slot);
-    const targetLayer = this.uiLayers.find((layer) => layer.slotNumber === slotNumber);
     if (!targetLayer) {
       return;
     }
 
-    this.setLayerVisibility(slotNumber, !targetLayer.isVisible);
+    this.setLayerSelected(layerId, !targetLayer.isSelected);
   }
 
-  handleToggleFilterMenu(event) {
-    const slotNumber = Number(event.currentTarget.dataset.slot);
+  // Backward compatibility with the old markup.
+  handleLayerVisibilityChange(event) {
+    this.handleLayerSelectionToggle(event);
+  }
+
+  // Backward compatibility with the old markup.
+  handleLayerVisibilityToggle(event) {
+    this.handleLayerSelectionToggle(event);
+  }
+
+  handleToggleFilterPanel(event) {
+    const layerId = this.resolveLayerIdFromEvent(event);
+    if (!layerId) {
+      return;
+    }
 
     this.uiLayers = this.uiLayers.map((layer) => {
-      const shouldOpen = layer.slotNumber === slotNumber ? !layer.isFilterMenuOpen : false;
-      return this.applyFilterMenuState(
-        {
-          ...layer,
-          isFilterMenuOpen: shouldOpen,
-          filterSearchText: shouldOpen ? "" : layer.filterSearchText
-        },
-        {
-          preserveSearchText: shouldOpen,
-          preserveMenuState: true
-        }
-      );
+      const shouldOpen = layer.mapLayerId === layerId ? !layer.isFilterPanelOpen : false;
+      return this.hydrateLayerState({
+        ...layer,
+        isFilterPanelOpen: shouldOpen
+      });
     });
   }
 
-  handleFilterSearchInput(event) {
-    const slotNumber = Number(event.target.dataset.slot);
-    const searchText = event.target.value || "";
-
-    this.uiLayers = this.uiLayers.map((layer) =>
-      layer.slotNumber === slotNumber
-        ? this.applyFilterMenuState(
-            {
-              ...layer,
-              filterSearchText: searchText,
-              isFilterMenuOpen: true
-            },
-            {
-              preserveSearchText: true,
-              preserveMenuState: true
-            }
-          )
-        : layer
-    );
+  // Backward compatibility with the old single-select filter trigger.
+  handleToggleFilterMenu(event) {
+    this.handleToggleFilterPanel(event);
   }
 
-  handleFilterOptionSelect(event) {
-    const slotNumber = Number(event.currentTarget.dataset.slot);
-    const selectedFilterValue = event.currentTarget.dataset.value;
+  // Retained as a no-op for backward compatibility with the old markup.
+  handleFilterSearchInput() {
+    // no-op
+  }
+
+  handleLayerFilterOptionChange(event) {
+    const layerId = this.resolveLayerIdFromEvent(event);
+    const fieldPath = event.target?.dataset?.fieldPath;
+    const optionValue = event.target?.dataset?.value;
+    const isChecked = Boolean(event.target?.checked);
+
+    if (!layerId || !fieldPath || !optionValue) {
+      return;
+    }
+
+    const viewState = this.captureMapViewState();
 
     this.cancelLassoMode({
       clearSelection: true,
@@ -1688,33 +1935,134 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     });
 
     this.uiLayers = this.uiLayers.map((layer) => {
-      if (layer.slotNumber !== slotNumber) {
-        return this.applyFilterMenuState(
-          {
-            ...layer,
-            isFilterMenuOpen: false
-          },
-          {
-            preserveSearchText: false,
-            preserveMenuState: true
-          }
-        );
+      if (layer.mapLayerId !== layerId) {
+        return this.hydrateLayerState({
+          ...layer,
+          isFilterPanelOpen: false
+        });
       }
 
-      return this.applyFilterMenuState(
-        {
-          ...layer,
-          selectedFilterValue,
-          isFilterMenuOpen: false
-        },
-        {
-          preserveSearchText: false,
-          preserveMenuState: true
+      const nextFilterFields = layer.filterFields.map((filterField) => {
+        if (filterField.fieldPath !== fieldPath) {
+          return filterField;
         }
-      );
+
+        let nextSelectedValues = Array.isArray(filterField.selectedValues)
+          ? [...filterField.selectedValues]
+          : [];
+
+        if (isChecked) {
+          if (!nextSelectedValues.includes(optionValue)) {
+            nextSelectedValues.push(optionValue);
+          }
+        } else {
+          nextSelectedValues = nextSelectedValues.filter((value) => value !== optionValue);
+        }
+
+        return {
+          ...filterField,
+          selectedValues: nextSelectedValues
+        };
+      });
+
+      return this.hydrateLayerState({
+        ...layer,
+        filterFields: nextFilterFields,
+        isFilterPanelOpen: true
+      });
     });
 
-    this.renderVisibleFeatures({ fitToBounds: true });
+    this.renderVisibleFeatures({
+      preserveView: true,
+      viewState
+    });
+  }
+
+  handleClearLayerFilters(event) {
+    const layerId = this.resolveLayerIdFromEvent(event);
+    if (!layerId) {
+      return;
+    }
+
+    const viewState = this.captureMapViewState();
+
+    this.cancelLassoMode({
+      clearSelection: true,
+      closeBulkModal: true
+    });
+
+    this.uiLayers = this.uiLayers.map((layer) => {
+      if (layer.mapLayerId !== layerId) {
+        return layer;
+      }
+
+      const nextFilterFields = layer.filterFields.map((filterField) => ({
+        ...filterField,
+        selectedValues: []
+      }));
+
+      return this.hydrateLayerState({
+        ...layer,
+        filterFields: nextFilterFields,
+        isFilterPanelOpen: true
+      });
+    });
+
+    this.renderVisibleFeatures({
+      preserveView: true,
+      viewState
+    });
+  }
+
+  // Backward compatibility with the old single-select filter buttons.
+  handleFilterOptionSelect(event) {
+    const layerId = this.resolveLayerIdFromEvent(event);
+    const selectedFilterValue = event.currentTarget?.dataset?.value;
+
+    if (!layerId) {
+      return;
+    }
+
+    const viewState = this.captureMapViewState();
+
+    this.cancelLassoMode({
+      clearSelection: true,
+      closeBulkModal: true
+    });
+
+    this.uiLayers = this.uiLayers.map((layer) => {
+      if (layer.mapLayerId !== layerId) {
+        return this.hydrateLayerState({
+          ...layer,
+          isFilterPanelOpen: false
+        });
+      }
+
+      const nextFilterFields = layer.filterFields.map((filterField, index) => {
+        if (index !== 0) {
+          return filterField;
+        }
+
+        return {
+          ...filterField,
+          selectedValues:
+            selectedFilterValue && selectedFilterValue !== ALL_FILTER_VALUE
+              ? [selectedFilterValue]
+              : []
+        };
+      });
+
+      return this.hydrateLayerState({
+        ...layer,
+        filterFields: nextFilterFields,
+        isFilterPanelOpen: false
+      });
+    });
+
+    this.renderVisibleFeatures({
+      preserveView: true,
+      viewState
+    });
   }
 
   handleToggleSidebar() {
@@ -2153,12 +2501,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       for (let edgeIndex = 0; edgeIndex < polygonEdges.length; edgeIndex += 1) {
         const polygonEdge = polygonEdges[edgeIndex];
         if (
-          this.doLatLngSegmentsIntersect(
-            lineStart,
-            lineEnd,
-            polygonEdge.start,
-            polygonEdge.end
-          )
+          this.doLatLngSegmentsIntersect(lineStart, lineEnd, polygonEdge.start, polygonEdge.end)
         ) {
           return true;
         }
@@ -2186,11 +2529,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   isPointInsidePolygon(pointLatLng, polygonLatLngs) {
-    if (
-      !Array.isArray(pointLatLng) ||
-      !Array.isArray(polygonLatLngs) ||
-      polygonLatLngs.length < 4
-    ) {
+    if (!Array.isArray(pointLatLng) || !Array.isArray(polygonLatLngs) || polygonLatLngs.length < 4) {
       return false;
     }
 
@@ -2356,12 +2695,16 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
     if (this.mapReady) {
       await this.waitForLayoutStabilization();
-      this.renderVisibleFeatures({ fitToBounds: !viewState });
 
       if (viewState) {
-        this.scheduleMapViewportSync({
+        this.renderVisibleFeatures({
           preserveView: true,
           viewState
+        });
+      } else {
+        this.renderVisibleFeatures({
+          fitToBounds: true,
+          fallbackToDefault: true
         });
       }
     }
