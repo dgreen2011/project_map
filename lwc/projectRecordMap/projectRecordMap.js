@@ -17,14 +17,10 @@ import {
 import {
   BASEMAP_MODE_SATELLITE,
   createInitialBasemapState,
-  buildBasemapModeSwitchState,
   buildBasemapLoadedState,
   buildBasemapTileErrorResult,
   getBasemapProvider,
-  buildTileLayerOptions,
-  getNextBasemapMode,
-  getBasemapToggleTitle,
-  getActiveBasemapLabel
+  buildTileLayerOptions
 } from "c/projectRecordMapBasemapUtils";
 import {
   ensureClosedPolygonLatLngs,
@@ -77,8 +73,6 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   map = null;
   tileLayer = null;
   zoomControl = null;
-  basemapToggleControl = null;
-  basemapToggleButtonElement = null;
   renderedFeatureGroup = null;
   selectionHighlightGroup = null;
 
@@ -368,7 +362,6 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       zoomControl: false
     });
 
-    this.createBasemapToggleControl();
     this.createZoomControl();
     this.initializeBasemapLayer();
     this.registerLeafletMapListeners();
@@ -376,51 +369,6 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     this.mapReady = true;
     this.syncLassoInteractionState();
     this.scheduleMapViewportSync({ fitToBounds: false });
-  }
-
-  createBasemapToggleControl() {
-    if (!this.map || !window.L || this.basemapToggleControl) {
-      return;
-    }
-
-    this.basemapToggleControl = window.L.control({ position: "bottomright" });
-
-    this.basemapToggleControl.onAdd = () => {
-      const container = window.L.DomUtil.create("div", "leaflet-bar");
-      container.style.boxShadow = "0 1px 5px rgb(0 0 0 / 45%)";
-      container.style.borderRadius = "4px";
-      container.style.overflow = "hidden";
-
-      const button = window.L.DomUtil.create("button", "", container);
-      button.type = "button";
-      button.style.width = "30px";
-      button.style.height = "30px";
-      button.style.display = "flex";
-      button.style.alignItems = "center";
-      button.style.justifyContent = "center";
-      button.style.background = "#ffffff";
-      button.style.border = "0";
-      button.style.color = "#2f3e5c";
-      button.style.cursor = "pointer";
-      button.style.padding = "0";
-      button.style.margin = "0";
-      button.style.lineHeight = "1";
-      button.style.font = "inherit";
-
-      window.L.DomEvent.disableClickPropagation(container);
-      window.L.DomEvent.disableScrollPropagation(container);
-      window.L.DomEvent.on(button, "click", (event) => {
-        window.L.DomEvent.stop(event);
-        this.handleToggleBasemapMode();
-      });
-
-      this.basemapToggleButtonElement = button;
-      this.syncBasemapControlButton();
-
-      return container;
-    };
-
-    this.basemapToggleControl.addTo(this.map);
   }
 
   createZoomControl() {
@@ -434,24 +382,8 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     this.zoomControl.addTo(this.map);
   }
 
-  syncBasemapControlButton() {
-    if (!this.basemapToggleButtonElement) {
-      return;
-    }
-
-    const activeLabel = getActiveBasemapLabel(this.basemapState.mode);
-    const toggleTitle = getBasemapToggleTitle(this.basemapState.mode);
-
-    this.basemapToggleButtonElement.innerHTML = getBasemapControlIconMarkup(this.basemapState.mode);
-    this.basemapToggleButtonElement.title = `${activeLabel} view. ${toggleTitle}`;
-    this.basemapToggleButtonElement.setAttribute("aria-label", `${activeLabel} view. ${toggleTitle}`);
-    this.basemapToggleButtonElement.setAttribute("data-basemap-mode", this.basemapState.mode);
-  }
-
   initializeBasemapLayer() {
-    this.basemapState = buildBasemapModeSwitchState(
-      this.basemapState?.mode || BASEMAP_MODE_SATELLITE
-    );
+    this.basemapState = createInitialBasemapState(BASEMAP_MODE_SATELLITE);
     this.tileWarningMessage = "";
     this.replaceBasemapLayer();
   }
@@ -489,44 +421,21 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     });
 
     this.tileLayer.addTo(this.map);
-    this.syncBasemapControlButton();
   }
 
   handleBasemapTileLoad() {
     this.basemapState = buildBasemapLoadedState(this.basemapState);
     this.tileWarningMessage = this.basemapState.warningMessage || "";
-    this.syncBasemapControlButton();
   }
 
   handleBasemapTileError() {
     const tileErrorResult = buildBasemapTileErrorResult(this.basemapState);
     this.basemapState = tileErrorResult.state;
     this.tileWarningMessage = this.basemapState.warningMessage || "";
-    this.syncBasemapControlButton();
 
     if (tileErrorResult.shouldReplaceLayer) {
       this.replaceBasemapLayer();
     }
-  }
-
-  handleToggleBasemapMode() {
-    if (!this.mapReady || !window.L) {
-      return;
-    }
-
-    const viewState = this.captureMapViewState();
-
-    this.basemapState = buildBasemapModeSwitchState(
-      getNextBasemapMode(this.basemapState.mode)
-    );
-    this.tileWarningMessage = "";
-    this.syncBasemapControlButton();
-    this.replaceBasemapLayer();
-
-    this.scheduleMapViewportSync({
-      preserveView: true,
-      viewState
-    });
   }
 
   registerLeafletMapListeners() {
@@ -591,8 +500,6 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     this.map = null;
     this.tileLayer = null;
     this.zoomControl = null;
-    this.basemapToggleControl = null;
-    this.basemapToggleButtonElement = null;
     this.renderedFeatureGroup = null;
     this.mapReady = false;
   }
@@ -721,7 +628,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     const selectAllByDefault = this.hasLegacyConfiguredLayerInputs;
 
     this.allLayers = responseLayers.map((incomingLayer) => {
-      let normalizedLayer = normalizeLayerResponse(incomingLayer, {
+      const normalizedLayer = normalizeLayerResponse(incomingLayer, {
         isSelected: false,
         isVisibleOnMap: false,
         isFilterPanelOpen: false
@@ -1043,6 +950,14 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     };
   }
 
+  getAllFilterOptionValues(filterField) {
+    return Array.isArray(filterField?.options)
+      ? filterField.options
+          .map((option) => option?.value || option?.label || "")
+          .filter((value) => Boolean(value))
+      : [];
+  }
+
   setLayerSelected(layerId, isSelected) {
     if (!layerId) {
       return;
@@ -1226,6 +1141,42 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     });
   }
 
+  handleCheckAllLayerFilters(event) {
+    const layerId = this.resolveLayerIdFromEvent(event);
+    if (!layerId) {
+      return;
+    }
+
+    const viewState = this.captureMapViewState();
+
+    this.cancelLassoMode({
+      clearSelection: true,
+      closeBulkModal: true
+    });
+
+    this.allLayers = this.allLayers.map((layer) => {
+      if (layer.mapLayerId !== layerId) {
+        return layer;
+      }
+
+      const nextFilterFields = layer.filterFields.map((filterField) => ({
+        ...filterField,
+        selectedValues: this.getAllFilterOptionValues(filterField)
+      }));
+
+      return hydrateLayerState({
+        ...layer,
+        filterFields: nextFilterFields,
+        isFilterPanelOpen: true
+      });
+    });
+
+    this.renderVisibleFeatures({
+      preserveView: true,
+      viewState
+    });
+  }
+
   handleClearLayerFilters(event) {
     const layerId = this.resolveLayerIdFromEvent(event);
     if (!layerId) {
@@ -1246,7 +1197,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
       const nextFilterFields = layer.filterFields.map((filterField) => ({
         ...filterField,
-        selectedValues: []
+        selectedValues: this.getAllFilterOptionValues(filterField)
       }));
 
       return hydrateLayerState({
@@ -1901,37 +1852,4 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
     return "Unknown error.";
   }
-}
-
-function getBasemapControlIconMarkup(mode) {
-  if (mode === "terrain") {
-    return `
-      <svg
-        viewBox="0 0 24 24"
-        width="15"
-        height="15"
-        aria-hidden="true"
-        focusable="false"
-        style="display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;"
-      >
-        <path d="M3 18h18"></path>
-        <path d="M5 18l5-7 3 4 3-5 3 8"></path>
-      </svg>
-    `;
-  }
-
-  return `
-    <svg
-      viewBox="0 0 24 24"
-      width="15"
-      height="15"
-      aria-hidden="true"
-      focusable="false"
-      style="display:block;fill:none;stroke:currentColor;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;"
-    >
-      <rect x="3.5" y="5" width="17" height="14" rx="1.75"></rect>
-      <path d="M7 14l3-3 2.5 2.5 2.5-3.5 2 4"></path>
-      <circle cx="16.75" cy="9.25" r="1.25"></circle>
-    </svg>
-  `;
 }
