@@ -4,8 +4,15 @@
       <div class="side-panel-heading">Layers</div>
 
       <div class="side-panel-header-actions">
-        <div class="layer-add-menu-wrap">
+        <div
+          class="layer-add-menu-wrap"
+          data-id="layer-add-menu-wrap"
+          data-add-menu-wrap="true"
+          onclick={handleAddMenuInteraction}
+          onmousedown={handleAddMenuInteraction}
+        >
           <lightning-button-icon
+            data-add-menu-toggle="true"
             icon-name={addLayersButtonIconName}
             alternative-text={addLayersButtonTitle}
             title={addLayersButtonTitle}
@@ -17,7 +24,10 @@
             <div
               class={addMenuClass}
               data-id="layer-add-menu"
+              data-add-menu-root="true"
               style={addMenuInlineStyle}
+              onclick={handleAddMenuInteraction}
+              onmousedown={handleAddMenuInteraction}
             >
               <div class="layer-add-menu-header">
                 <div class="layer-add-menu-title">Add Layers</div>
@@ -32,7 +42,11 @@
               </div>
 
               <template if:true={showAddMenuSearch}>
-                <div class="layer-add-menu-search">
+                <div
+                  class="layer-add-menu-search"
+                  onclick={handleAddMenuInteraction}
+                  onmousedown={handleAddMenuInteraction}
+                >
                   <lightning-input
                     data-id="add-layer-search"
                     type="search"
@@ -40,11 +54,17 @@
                     placeholder="Search layers"
                     value={addMenuSearchValue}
                     oninput={handleAddMenuSearchInput}
+                    onclick={handleAddMenuInteraction}
+                    onmousedown={handleAddMenuInteraction}
                   ></lightning-input>
                 </div>
               </template>
 
-              <div class="layer-add-menu-list">
+              <div
+                class="layer-add-menu-list"
+                onclick={handleAddMenuInteraction}
+                onmousedown={handleAddMenuInteraction}
+              >
                 <template if:true={hasFilteredAvailableLayersToAdd}>
                   <template for:each={filteredHiddenLayers} for:item="layer">
                     <section key={layer.mapLayerId} class="layer-add-menu-row">
@@ -196,20 +216,38 @@
             </template>
 
             <template if:true={layer.isFilterPanelOpen}>
-              <div class="layer-filter-panel" data-filter-panel="true">
+              <div
+                class="layer-filter-panel"
+                data-filter-panel="true"
+                onclick={handleAddMenuInteraction}
+                onmousedown={handleAddMenuInteraction}
+              >
                 <div class="layer-filter-panel-header">
                   <div class="layer-filter-panel-title">Layer Filters</div>
 
-                  <button
-                    class="layer-filter-clear-button"
-                    type="button"
-                    data-layer-id={layer.mapLayerId}
-                    onclick={handleClearLayerFilters}
-                    title="Clear all filters"
-                    aria-label="Clear all filters"
-                  >
-                    Clear
-                  </button>
+                  <div class="layer-filter-panel-actions">
+                    <button
+                      class="layer-filter-check-all-button"
+                      type="button"
+                      data-layer-id={layer.mapLayerId}
+                      onclick={handleCheckAllLayerFilters}
+                      title="Check all filters"
+                      aria-label="Check all filters"
+                    >
+                      Check all
+                    </button>
+
+                    <button
+                      class="layer-filter-clear-button"
+                      type="button"
+                      data-layer-id={layer.mapLayerId}
+                      onclick={handleClearLayerFilters}
+                      title="Clear all filters"
+                      aria-label="Clear all filters"
+                    >
+                      Clear
+                    </button>
+                  </div>
                 </div>
 
                 <template for:each={layer.filterFields} for:item="filterField">
