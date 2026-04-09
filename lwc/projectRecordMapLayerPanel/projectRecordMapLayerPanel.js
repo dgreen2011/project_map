@@ -79,6 +79,10 @@ export default class ProjectRecordMapLayerPanel extends LightningElement {
     return this.isPopoutVariant ? "side-panel side-panel-popout" : "side-panel";
   }
 
+  get sidePanelBodyClass() {
+    return this.isPopoutVariant ? "side-panel-body side-panel-body-popout" : "side-panel-body";
+  }
+
   get shownLayers() {
     return Array.isArray(this.layers) ? this.layers : [];
   }

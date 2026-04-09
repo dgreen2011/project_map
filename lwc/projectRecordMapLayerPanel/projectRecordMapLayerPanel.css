@@ -19,8 +19,7 @@
   z-index: 1;
   min-height: 0;
   height: 100%;
-  overflow: auto;
-  padding-right: 0.15rem;
+  overflow: visible;
 }
 
 .side-panel-header {
@@ -47,6 +46,21 @@
   line-height: 1.2;
   letter-spacing: 0.02em;
   text-transform: uppercase;
+}
+
+.side-panel-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  min-width: 0;
+}
+
+.side-panel-body-popout {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  padding-right: 0.15rem;
 }
 
 .side-panel-section {
