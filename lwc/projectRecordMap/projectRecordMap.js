@@ -1197,7 +1197,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
       const nextFilterFields = layer.filterFields.map((filterField) => ({
         ...filterField,
-        selectedValues: this.getAllFilterOptionValues(filterField)
+        selectedValues: []
       }));
 
       return hydrateLayerState({

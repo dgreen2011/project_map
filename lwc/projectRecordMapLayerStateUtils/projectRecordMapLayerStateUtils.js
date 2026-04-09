@@ -164,6 +164,17 @@ export function buildLayerFilterSummaryText(layer, activeFilterCount = null) {
     return "";
   }
 
+  const hasClearedFilterField = (Array.isArray(layer?.filterFields) ? layer.filterFields : []).some(
+    (filterField) =>
+      filterField?.hasOptions &&
+      (Number(filterField?.optionCount) || 0) > 0 &&
+      (Number(filterField?.selectedCount) || 0) === 0
+  );
+
+  if (hasClearedFilterField) {
+    return "None";
+  }
+
   if (!appliedCount) {
     return "All";
   }
@@ -172,8 +183,12 @@ export function buildLayerFilterSummaryText(layer, activeFilterCount = null) {
 }
 
 export function buildSelectedValuesText(values, optionCount = 0) {
-  if (!Array.isArray(values) || !values.length) {
+  if (!Array.isArray(values)) {
     return "All";
+  }
+
+  if (!values.length) {
+    return "None";
   }
 
   if (optionCount > 0 && values.length >= optionCount) {
@@ -347,13 +362,14 @@ function hydrateFilterFieldState(filterField) {
     : [];
 
   const optionValues = getAllFilterOptionValues({ options });
+  const providedSelectedValues = Array.isArray(filterField?.selectedValues)
+    ? filterField.selectedValues
+    : null;
   const selectedValueSet = new Set(
-    (Array.isArray(filterField?.selectedValues) ? filterField.selectedValues : []).filter((value) =>
-      optionValues.includes(value)
-    )
+    (providedSelectedValues || []).filter((value) => optionValues.includes(value))
   );
 
-  if (!selectedValueSet.size && optionValues.length) {
+  if (!providedSelectedValues && optionValues.length) {
     optionValues.forEach((value) => selectedValueSet.add(value));
   }
 
@@ -392,11 +408,7 @@ function doesFilterFieldHaveActiveSelection(filterField) {
   const optionCount = Number(filterField?.optionCount) || getAllFilterOptionValues(filterField).length;
   const selectedCount = Number(filterField?.selectedCount) || 0;
 
-  if (!selectedCount) {
-    return false;
-  }
-
-  return optionCount > 0 && selectedCount < optionCount;
+  return optionCount > 0 && selectedCount !== optionCount;
 }
 
 function doesFeatureMatchFilterField(feature, filterField) {
@@ -406,7 +418,7 @@ function doesFeatureMatchFilterField(feature, filterField) {
 
   const selectedValues = Array.isArray(filterField?.selectedValues) ? filterField.selectedValues : [];
   if (!selectedValues.length) {
-    return true;
+    return false;
   }
 
   const featureValues = (Array.isArray(feature?.filterValues) ? feature.filterValues : [])
