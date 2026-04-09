@@ -70,12 +70,10 @@ export function applyPreviousLayerState(layer, previousState = {}) {
   const filterSelectionsByFieldPath = previousState?.filterSelectionsByFieldPath || {};
   const nextFilterFields = (Array.isArray(layer?.filterFields) ? layer.filterFields : []).map(
     (filterField) => {
-      const availableValues = new Set(
-        (Array.isArray(filterField?.options) ? filterField.options : []).map((option) => option.value)
-      );
+      const availableValues = new Set(getAllFilterOptionValues(filterField));
       const priorSelectedValues = Array.isArray(filterSelectionsByFieldPath[filterField.fieldPath])
         ? filterSelectionsByFieldPath[filterField.fieldPath]
-        : [];
+        : getAllFilterOptionValues(filterField);
 
       return {
         ...filterField,
@@ -150,10 +148,13 @@ export function getAppliedFilterCount(layer) {
     return 0;
   }
 
-  return layer.filterFields.reduce(
-    (sum, filterField) => sum + (Number(filterField?.selectedCount) || 0),
-    0
-  );
+  return layer.filterFields.reduce((sum, filterField) => {
+    if (!doesFilterFieldHaveActiveSelection(filterField)) {
+      return sum;
+    }
+
+    return sum + (Number(filterField?.selectedCount) || 0);
+  }, 0);
 }
 
 export function buildLayerFilterSummaryText(layer, activeFilterCount = null) {
@@ -170,8 +171,12 @@ export function buildLayerFilterSummaryText(layer, activeFilterCount = null) {
   return `${appliedCount} selected`;
 }
 
-export function buildSelectedValuesText(values) {
+export function buildSelectedValuesText(values, optionCount = 0) {
   if (!Array.isArray(values) || !values.length) {
+    return "All";
+  }
+
+  if (optionCount > 0 && values.length >= optionCount) {
     return "All";
   }
 
@@ -188,8 +193,8 @@ export function getFilteredFeatures(layer) {
   }
 
   const filterFields = Array.isArray(layer?.filterFields) ? layer.filterFields : [];
-  const appliedFilterFields = filterFields.filter(
-    (filterField) => Array.isArray(filterField?.selectedValues) && filterField.selectedValues.length
+  const appliedFilterFields = filterFields.filter((filterField) =>
+    doesFilterFieldHaveActiveSelection(filterField)
   );
 
   const features = Array.isArray(layer?.features) ? layer.features : [];
@@ -257,21 +262,26 @@ export function normalizeStyleConfig(styleConfig) {
 
 export function normalizeFilterField(filterField) {
   const rawOptions = Array.isArray(filterField?.options) ? filterField.options : [];
-  const options = rawOptions
-    .map((option) => normalizeString(option))
-    .filter((option) => Boolean(option))
-    .map((option) => ({
-      label: option,
-      value: option,
-      checked: false
-    }));
+  const dedupedOptionValues = Array.from(
+    new Set(
+      rawOptions
+        .map((option) => normalizeString(option))
+        .filter((option) => Boolean(option))
+    )
+  );
+
+  const options = dedupedOptionValues.map((optionValue) => ({
+    label: optionValue,
+    value: optionValue,
+    checked: true
+  }));
 
   return hydrateFilterFieldState({
     fieldPath: filterField?.fieldPath || "",
     fieldLabel: filterField?.fieldLabel || "",
     dataType: filterField?.dataType || "",
     options,
-    selectedValues: []
+    selectedValues: dedupedOptionValues
   });
 }
 
@@ -319,34 +329,82 @@ export function normalizeFeatureFilterValues(layer, feature) {
   return [];
 }
 
-function hydrateFilterFieldState(filterField) {
-  const selectedValues = Array.isArray(filterField?.selectedValues)
-    ? filterField.selectedValues.filter((value) => Boolean(value))
+export function getAllFilterOptionValues(filterField) {
+  return Array.isArray(filterField?.options)
+    ? filterField.options
+        .map((option) => option?.value || option?.label || "")
+        .filter((value) => Boolean(value))
     : [];
-  const selectedValueSet = new Set(selectedValues);
+}
 
+function hydrateFilterFieldState(filterField) {
   const options = Array.isArray(filterField?.options)
     ? filterField.options.map((option) => ({
         label: option?.label || option?.value || "",
         value: option?.value || option?.label || "",
-        checked: selectedValueSet.has(option?.value || option?.label || "")
+        checked: false
       }))
     : [];
 
+  const optionValues = getAllFilterOptionValues({ options });
+  const selectedValueSet = new Set(
+    (Array.isArray(filterField?.selectedValues) ? filterField.selectedValues : []).filter((value) =>
+      optionValues.includes(value)
+    )
+  );
+
+  if (!selectedValueSet.size && optionValues.length) {
+    optionValues.forEach((value) => selectedValueSet.add(value));
+  }
+
+  const selectedValues = optionValues.filter((value) => selectedValueSet.has(value));
+  const hasAllSelectedValues = optionValues.length > 0 && selectedValues.length >= optionValues.length;
+
+  const checkedOptions = options.map((option) => ({
+    ...option,
+    checked: hasAllSelectedValues
+      ? true
+      : selectedValueSet.has(option.value || option.label || "")
+  }));
+
   return {
     ...filterField,
-    options,
-    selectedValues,
-    selectedCount: selectedValues.length,
-    hasOptions: options.length > 0,
-    hasSelectedValues: selectedValues.length > 0,
-    selectedSummaryText: buildSelectedValuesText(selectedValues)
+    options: checkedOptions,
+    optionCount: optionValues.length,
+    allOptionValues: optionValues,
+    selectedValues: hasAllSelectedValues ? [...optionValues] : selectedValues,
+    selectedCount: hasAllSelectedValues ? optionValues.length : selectedValues.length,
+    hasOptions: checkedOptions.length > 0,
+    hasSelectedValues: optionValues.length > 0,
+    hasAllSelectedValues,
+    selectedSummaryText: buildSelectedValuesText(
+      hasAllSelectedValues ? optionValues : selectedValues,
+      optionValues.length
+    )
   };
 }
 
-function doesFeatureMatchFilterField(feature, filterField) {
-  const selectedValues = Array.isArray(filterField?.selectedValues) ? filterField.selectedValues : [];
+function doesFilterFieldHaveActiveSelection(filterField) {
+  if (!filterField?.hasOptions) {
+    return false;
+  }
 
+  const optionCount = Number(filterField?.optionCount) || getAllFilterOptionValues(filterField).length;
+  const selectedCount = Number(filterField?.selectedCount) || 0;
+
+  if (!selectedCount) {
+    return false;
+  }
+
+  return optionCount > 0 && selectedCount < optionCount;
+}
+
+function doesFeatureMatchFilterField(feature, filterField) {
+  if (!doesFilterFieldHaveActiveSelection(filterField)) {
+    return true;
+  }
+
+  const selectedValues = Array.isArray(filterField?.selectedValues) ? filterField.selectedValues : [];
   if (!selectedValues.length) {
     return true;
   }
