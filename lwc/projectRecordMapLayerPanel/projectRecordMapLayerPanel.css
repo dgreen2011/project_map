@@ -8,6 +8,7 @@
   flex-direction: column;
   gap: 0.7rem;
   min-width: 0;
+  overflow: visible;
 }
 
 .side-panel-popout {
@@ -23,6 +24,7 @@
   justify-content: space-between;
   gap: 0.45rem;
   padding: 0 0.05rem;
+  overflow: visible;
 }
 
 .side-panel-header-actions {
@@ -30,6 +32,7 @@
   align-items: center;
   gap: 0.45rem;
   flex: 0 0 auto;
+  overflow: visible;
 }
 
 .side-panel-heading {
@@ -61,14 +64,17 @@
   position: relative;
   display: inline-flex;
   align-items: center;
+  overflow: visible;
 }
 
 .layer-add-menu {
   position: absolute;
   top: calc(100% + 0.45rem);
   right: 0;
+  left: auto;
   z-index: 25;
   width: min(24rem, calc(100vw - 1rem));
+  min-width: min(18rem, calc(100vw - 1rem));
   max-width: calc(100vw - 1rem);
   display: flex;
   flex-direction: column;
@@ -78,6 +84,7 @@
   background: #ffffff;
   box-shadow: 0 10px 28px rgb(0 0 0 / 14%);
   padding: 0.7rem;
+  box-sizing: border-box;
   transform-origin: top right;
 }
 
@@ -105,6 +112,7 @@
 
 .layer-add-menu-search lightning-input {
   display: block;
+  width: 100%;
   --slds-c-input-radius-border: 0.45rem;
 }
 
@@ -114,6 +122,7 @@
   gap: 0.4rem;
   max-height: 18rem;
   overflow: auto;
+  overscroll-behavior: contain;
   padding-right: 0.1rem;
 }
 
@@ -376,6 +385,15 @@
   line-height: 1.2;
 }
 
+.layer-filter-panel-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.layer-filter-check-all-button,
 .layer-filter-clear-button {
   appearance: none;
   border: 0;
@@ -389,6 +407,8 @@
   cursor: pointer;
 }
 
+.layer-filter-check-all-button:hover,
+.layer-filter-check-all-button:focus,
 .layer-filter-clear-button:hover,
 .layer-filter-clear-button:focus {
   text-decoration: underline;
@@ -436,6 +456,7 @@
   gap: 0.28rem;
   max-height: 9.5rem;
   overflow: auto;
+  overscroll-behavior: contain;
   padding-right: 0.1rem;
 }
 
@@ -496,18 +517,21 @@
 
 @media (max-width: 640px) {
   .layer-card-header,
-  .layer-add-menu-row {
+  .layer-add-menu-row,
+  .layer-filter-panel-header {
     flex-direction: column;
     align-items: stretch;
   }
 
   .layer-card-actions,
-  .layer-add-menu-row-action {
+  .layer-add-menu-row-action,
+  .layer-filter-panel-actions {
     justify-content: flex-end;
   }
 
   .layer-add-menu {
     width: min(20rem, calc(100vw - 1rem));
+    min-width: min(16rem, calc(100vw - 1rem));
     max-width: calc(100vw - 1rem);
   }
 }
