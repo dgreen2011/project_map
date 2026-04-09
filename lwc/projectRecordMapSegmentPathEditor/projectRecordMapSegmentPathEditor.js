@@ -3,14 +3,26 @@ import { loadScript, loadStyle } from "lightning/platformResourceLoader";
 
 import leafletResource from "@salesforce/resourceUrl/leaflet_1_9_4";
 
+import {
+  extractPolylineCoordinateSets as extractSharedPolylineCoordinateSets,
+  toLatLngs as toSharedLatLngs
+} from "c/projectRecordMapGeometryUtils";
+import {
+  BASEMAP_MODE_SATELLITE,
+  createInitialBasemapState,
+  buildBasemapLoadedState,
+  buildBasemapTileErrorResult,
+  getBasemapProvider,
+  buildTileLayerOptions
+} from "c/projectRecordMapBasemapUtils";
+
 const DEFAULT_MAP_HEIGHT_PX = 220;
 const DEFAULT_MAP_PADDING = [18, 18];
-const DEFAULT_TILE_URL = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
-const DEFAULT_TILE_ATTRIBUTION = "&copy; OpenStreetMap contributors";
 const SNAP_TOLERANCE_PX = 34;
 const SELECTION_MODE_NONE = "";
 const SELECTION_MODE_FULL = "full";
 const SELECTION_MODE_PARTIAL = "partial";
+
 const BASE_LINE_STYLE = {
   color: "#9fb0c3",
   weight: 4,
@@ -18,6 +30,7 @@ const BASE_LINE_STYLE = {
   lineCap: "round",
   lineJoin: "round"
 };
+
 const SELECTED_LINE_STYLE = {
   color: "#0176d3",
   weight: 6,
@@ -25,6 +38,7 @@ const SELECTED_LINE_STYLE = {
   lineCap: "round",
   lineJoin: "round"
 };
+
 const SELECTION_POINT_STYLE = {
   radius: 6,
   color: "#0176d3",
@@ -33,6 +47,7 @@ const SELECTION_POINT_STYLE = {
   fillColor: "#ffffff",
   fillOpacity: 1
 };
+
 const ENDPOINT_POINT_STYLE = {
   radius: 7,
   color: "#5b7ca0",
@@ -57,6 +72,8 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
   selectedLayerGroup = null;
   boundMapClickHandler = null;
   pendingViewportSyncTimer = null;
+
+  basemapState = createInitialBasemapState(BASEMAP_MODE_SATELLITE);
 
   selectionMode = SELECTION_MODE_NONE;
   partialSelectionPoints = [];
@@ -143,7 +160,6 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
     return this.partialSelectionPoints.length > 0;
   }
 
-
   async ensureBootstrapped() {
     if (this.bootstrapPromise) {
       return this.bootstrapPromise;
@@ -175,6 +191,7 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
 
   initializeStateFromGeometry() {
     this.hasViewportBeenFitted = false;
+    this.errorMessage = "";
     this.fullCoordinateSets = this.extractPolylineCoordinateSets(this.segmentGeometryRaw);
     this.fullPathValue = this.hasSegmentGeometry ? JSON.stringify(this.fullCoordinateSets) : "";
 
@@ -205,23 +222,80 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
       touchZoom: true
     });
 
-    this.tileLayer = window.L.tileLayer(DEFAULT_TILE_URL, {
-      attribution: DEFAULT_TILE_ATTRIBUTION,
-      maxZoom: 22
-    });
-    this.tileLayer.addTo(this.map);
-
+    this.initializeBasemapLayer();
     this.map.setView([39.8283, -98.5795], 4);
+
     this.boundMapClickHandler = this.handleMapClick.bind(this);
     this.map.on("click", this.boundMapClickHandler);
 
     this.mapReady = true;
   }
 
+  initializeBasemapLayer() {
+    this.basemapState = createInitialBasemapState(BASEMAP_MODE_SATELLITE);
+    this.replaceBasemapLayer();
+  }
+
+  replaceBasemapLayer() {
+    if (!window.L || !this.map) {
+      return;
+    }
+
+    const basemapProvider = getBasemapProvider(this.basemapState);
+    if (!basemapProvider) {
+      return;
+    }
+
+    if (this.tileLayer) {
+      try {
+        this.tileLayer.off();
+        this.map.removeLayer(this.tileLayer);
+      } catch (error) {
+        // swallow cleanup errors
+      }
+    }
+
+    this.tileLayer = window.L.tileLayer(
+      basemapProvider.url,
+      buildTileLayerOptions(basemapProvider)
+    );
+
+    this.tileLayer.on("tileerror", () => {
+      this.handleBasemapTileError();
+    });
+
+    this.tileLayer.on("load", () => {
+      this.handleBasemapTileLoad();
+    });
+
+    this.tileLayer.addTo(this.map);
+  }
+
+  handleBasemapTileLoad() {
+    this.basemapState = buildBasemapLoadedState(this.basemapState);
+  }
+
+  handleBasemapTileError() {
+    const tileErrorResult = buildBasemapTileErrorResult(this.basemapState);
+    this.basemapState = tileErrorResult.state;
+
+    if (tileErrorResult.shouldReplaceLayer) {
+      this.replaceBasemapLayer();
+    }
+  }
+
   destroyMap() {
     if (this.map && this.boundMapClickHandler) {
       try {
         this.map.off("click", this.boundMapClickHandler);
+      } catch (error) {
+        // swallow cleanup errors
+      }
+    }
+
+    if (this.tileLayer) {
+      try {
+        this.tileLayer.off();
       } catch (error) {
         // swallow cleanup errors
       }
@@ -242,6 +316,7 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
     this.boundMapClickHandler = null;
     this.mapReady = false;
     this.hasViewportBeenFitted = false;
+    this.basemapState = createInitialBasemapState(BASEMAP_MODE_SATELLITE);
   }
 
   buildModeButtonClass(isActive) {
@@ -672,113 +747,15 @@ export default class ProjectRecordMapSegmentPathEditor extends LightningElement 
   }
 
   extractPolylineCoordinateSets(geometryRaw) {
-    const parsed = this.safeParseJson(geometryRaw);
-    if (!parsed) {
-      return [];
-    }
+    const rawCoordinateSets = extractSharedPolylineCoordinateSets(geometryRaw);
 
-    if (Array.isArray(parsed?.snappedPoints)) {
-      const snappedCoordinates = parsed.snappedPoints
-        .map((point) => {
-          const longitude = this.toNumber(
-            point?.location?.longitude ?? point?.location?.lng ?? point?.location?.lon
-          );
-          const latitude = this.toNumber(point?.location?.latitude ?? point?.location?.lat);
-
-          if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
-            return null;
-          }
-
-          return [longitude, latitude];
-        })
-        .filter((point) => Array.isArray(point));
-
-      return snappedCoordinates.length >= 2 ? [snappedCoordinates] : [];
-    }
-
-    if (parsed?.type === "Feature" && parsed.geometry) {
-      return this.extractPolylineCoordinateSets(parsed.geometry);
-    }
-
-    if (parsed?.type === "LineString" && Array.isArray(parsed.coordinates)) {
-      return [parsed.coordinates];
-    }
-
-    if (parsed?.type === "MultiLineString" && Array.isArray(parsed.coordinates)) {
-      return parsed.coordinates.filter((item) => this.isCoordinateSet(item));
-    }
-
-    if (Array.isArray(parsed) && this.isCoordinateSet(parsed)) {
-      return [parsed];
-    }
-
-    if (Array.isArray(parsed) && parsed.every((item) => this.isCoordinateSet(item))) {
-      return parsed;
-    }
-
-    if (Array.isArray(parsed)) {
-      return this.collectCoordinateSetsRecursively(parsed);
-    }
-
-    return [];
-  }
-
-  collectCoordinateSetsRecursively(value, collector = []) {
-    if (!Array.isArray(value)) {
-      return collector;
-    }
-
-    if (this.isCoordinateSet(value)) {
-      collector.push(value);
-      return collector;
-    }
-
-    value.forEach((item) => this.collectCoordinateSetsRecursively(item, collector));
-    return collector;
-  }
-
-  isCoordinateSet(value) {
-    return (
-      Array.isArray(value) &&
-      value.length > 0 &&
-      value.every((point) => Array.isArray(point) && point.length >= 2)
-    );
+    return (Array.isArray(rawCoordinateSets) ? rawCoordinateSets : [])
+      .map((coordinateSet) => this.normalizeCoordinateList(coordinateSet))
+      .filter((coordinateSet) => coordinateSet.length >= 2);
   }
 
   toLatLngs(coordinates) {
-    if (!Array.isArray(coordinates)) {
-      return [];
-    }
-
-    return coordinates
-      .map((point) => {
-        const longitude = this.toNumber(point?.[0]);
-        const latitude = this.toNumber(point?.[1]);
-
-        if (!Number.isFinite(longitude) || !Number.isFinite(latitude)) {
-          return null;
-        }
-
-        return [latitude, longitude];
-      })
-      .filter((point) => Array.isArray(point));
-  }
-
-  safeParseJson(value) {
-    if (!value || typeof value !== "string") {
-      return null;
-    }
-
-    const trimmedValue = value.trim();
-    if (!trimmedValue) {
-      return null;
-    }
-
-    try {
-      return JSON.parse(trimmedValue);
-    } catch (error) {
-      return null;
-    }
+    return toSharedLatLngs(coordinates);
   }
 
   toNumber(value) {
