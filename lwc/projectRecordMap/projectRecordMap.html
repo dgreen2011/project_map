@@ -63,12 +63,6 @@
           </div>
         </template>
 
-        <template if:true={showNoVisibleFeatures}>
-          <div class="message message-info">
-            No visible features matched the current layer selections and filter choices.
-          </div>
-        </template>
-
         <div class={contentGridClass}>
           <template if:true={showSidePanel}>
             <c-project-record-map-layer-panel
@@ -161,16 +155,6 @@
               onclick={handleRefreshClick}
               disabled={isLoading}
             ></lightning-button>
-
-            <button
-              class="map-expand-button map-expand-button-close"
-              type="button"
-              title="Close expanded map"
-              aria-label="Close expanded map"
-              onclick={handleCloseMapExpanded}
-            >
-              <span class="map-expand-button-icon" aria-hidden="true">×</span>
-            </button>
           </div>
         </div>
 

@@ -258,6 +258,15 @@
   cursor: pointer !important;
 }
 
+.map-root .project-record-map-lasso-guide,
+.map-root .project-record-map-lasso-draft,
+.map-root .project-record-map-lasso-polygon,
+.map-root .project-record-map-lasso-start-marker {
+  filter:
+    drop-shadow(0 0 2px rgb(255 255 255 / 96%))
+    drop-shadow(0 0 6px rgb(0 0 0 / 30%));
+}
+
 .map-frame-popout .map-root,
 .map-panel-popout .map-root {
   min-height: 0;
@@ -354,10 +363,6 @@
 
 .map-popout-content-grid-collapsed {
   grid-template-columns: minmax(0, 1fr);
-}
-
-.map-expand-button-close .map-expand-button-icon {
-  font-size: 1.15rem;
 }
 
 .message {

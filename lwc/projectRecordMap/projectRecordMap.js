@@ -38,8 +38,12 @@ const SITE_OBJECT_API_NAME = "sitetracker__site__c";
 const SEGMENT_OBJECT_API_NAME = "sitetracker__segment__c";
 
 const LASSO_CLOSE_DISTANCE_PX = 18;
-const LASSO_STROKE_COLOR = "#0176d3";
-const LASSO_FILL_COLOR = "#0176d3";
+const LASSO_STROKE_COLOR = "#00a9ff";
+const LASSO_FILL_COLOR = "#00a9ff";
+const LASSO_GUIDE_CLASS_NAME = "project-record-map-lasso-guide";
+const LASSO_DRAFT_CLASS_NAME = "project-record-map-lasso-draft";
+const LASSO_POLYGON_CLASS_NAME = "project-record-map-lasso-polygon";
+const LASSO_START_MARKER_CLASS_NAME = "project-record-map-lasso-start-marker";
 
 export default class ProjectRecordMap extends NavigationMixin(LightningElement) {
   @api recordId;
@@ -247,16 +251,6 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
   get totalRenderedFeatureCount() {
     return this.visibleUiLayers.reduce((sum, layer) => sum + (layer.visibleFeatureCount || 0), 0);
-  }
-
-  get showNoVisibleFeatures() {
-    return (
-      !this.isLoading &&
-      !this.errorMessage &&
-      this.hasConfiguredLayers &&
-      this.hasSelectedLayers &&
-      this.totalRenderedFeatureCount === 0
-    );
   }
 
   get mapSummaryText() {
@@ -1380,11 +1374,12 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     if (!this.lassoGuidePolyline) {
       this.lassoGuidePolyline = window.L.polyline(guideLatLngs, {
         color: LASSO_STROKE_COLOR,
-        weight: 1.5,
-        opacity: 0.7,
-        dashArray: "4 6",
+        weight: 2.5,
+        opacity: 0.95,
+        dashArray: "7 4",
         lineCap: "round",
         lineJoin: "round",
+        className: LASSO_GUIDE_CLASS_NAME,
         interactive: false
       }).addTo(this.map);
       return;
@@ -1463,12 +1458,13 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
     if (!this.lassoStartMarker) {
       this.lassoStartMarker = window.L.circleMarker(firstPoint, {
-        radius: 5,
+        radius: 7,
         color: "#ffffff",
-        weight: 2,
+        weight: 3,
         opacity: 1,
         fillColor: LASSO_STROKE_COLOR,
         fillOpacity: 1,
+        className: LASSO_START_MARKER_CLASS_NAME,
         interactive: false
       }).addTo(this.map);
     } else {
@@ -1478,11 +1474,12 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     if (!this.lassoDraftPolyline) {
       this.lassoDraftPolyline = window.L.polyline(draftLatLngs, {
         color: LASSO_STROKE_COLOR,
-        weight: 2,
-        opacity: 0.95,
-        dashArray: "6 6",
+        weight: 3.5,
+        opacity: 1,
+        dashArray: "7 4",
         lineCap: "round",
         lineJoin: "round",
+        className: LASSO_DRAFT_CLASS_NAME,
         interactive: false
       }).addTo(this.map);
     } else {
@@ -1493,11 +1490,12 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       if (!this.lassoDraftPolygon) {
         this.lassoDraftPolygon = window.L.polygon(draftLatLngs, {
           color: LASSO_STROKE_COLOR,
-          weight: 2,
-          opacity: 0.9,
-          dashArray: "6 6",
+          weight: 3,
+          opacity: 0.98,
+          dashArray: "7 4",
           fillColor: LASSO_FILL_COLOR,
-          fillOpacity: 0.08,
+          fillOpacity: 0.16,
+          className: LASSO_POLYGON_CLASS_NAME,
           interactive: false
         }).addTo(this.map);
       } else {

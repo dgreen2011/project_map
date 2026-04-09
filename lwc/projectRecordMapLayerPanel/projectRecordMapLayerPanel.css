@@ -1,6 +1,9 @@
 :host {
   display: block;
   min-width: 0;
+  position: relative;
+  z-index: 24;
+  overflow: visible;
 }
 
 .side-panel {
@@ -12,6 +15,8 @@
 }
 
 .side-panel-popout {
+  position: relative;
+  z-index: 1;
   min-height: 0;
   height: 100%;
   overflow: auto;
