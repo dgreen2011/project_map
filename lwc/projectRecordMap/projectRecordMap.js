@@ -79,6 +79,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   zoomControl = null;
   renderedFeatureGroup = null;
   selectionHighlightGroup = null;
+  mapMountNode = null;
 
   lassoDraftPolyline = null;
   lassoDraftPolygon = null;
@@ -119,6 +120,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
   renderedCallback() {
     this.ensurePopupActionListener();
+    this.attachMapMountNodeToCurrentHost();
     this.ensureBootstrapped();
     this.refreshIfNeeded();
   }
@@ -347,7 +349,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
       return;
     }
 
-    const mapContainer = this.template.querySelector('[data-id="map"]');
+    const mapContainer = this.attachMapMountNodeToCurrentHost();
     if (!mapContainer) {
       return;
     }
@@ -496,6 +498,12 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     this.zoomControl = null;
     this.renderedFeatureGroup = null;
     this.mapReady = false;
+
+    if (this.mapMountNode?.parentNode) {
+      this.mapMountNode.parentNode.removeChild(this.mapMountNode);
+    }
+
+    this.mapMountNode = null;
   }
 
   refreshIfNeeded() {
@@ -1433,7 +1441,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   setMapContainerLassoState(isActive) {
-    const mapContainer = this.template.querySelector('[data-id="map"]');
+    const mapContainer = this.mapMountNode;
     if (!mapContainer) {
       return;
     }
@@ -1726,29 +1734,69 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     this.closeAllFilterMenus();
     this.cancelLassoMode();
     this.clearPendingViewportSync();
-    this.destroyMap();
     this.isMapExpanded = nextExpandedState;
 
     await this.waitForLayoutStabilization();
     await this.waitForMapContainerReady();
+    this.attachMapMountNodeToCurrentHost();
 
-    this.initializeMap();
+    if (!this.mapReady) {
+      this.initializeMap();
 
-    if (this.mapReady) {
-      await this.waitForLayoutStabilization();
+      if (this.mapReady) {
+        await this.waitForLayoutStabilization();
 
-      if (viewState) {
-        this.renderVisibleFeatures({
-          preserveView: true,
-          viewState
-        });
-      } else {
-        this.renderVisibleFeatures({
-          fitToBounds: true,
-          fallbackToDefault: true
-        });
+        if (viewState) {
+          this.renderVisibleFeatures({
+            preserveView: true,
+            viewState
+          });
+        } else {
+          this.renderVisibleFeatures({
+            fitToBounds: true,
+            fallbackToDefault: true
+          });
+        }
       }
+
+      return;
     }
+
+    await this.waitForLayoutStabilization();
+
+    this.scheduleMapViewportSync({
+      fitToBounds: !viewState,
+      fallbackToDefault: !viewState,
+      preserveView: Boolean(viewState),
+      viewState
+    });
+  }
+
+  getMapHostElement() {
+    return this.template.querySelector('[data-id="map-host"]');
+  }
+
+  attachMapMountNodeToCurrentHost() {
+    const mapHost = this.getMapHostElement();
+    if (!mapHost) {
+      return null;
+    }
+
+    if (!this.mapMountNode && typeof document !== "undefined") {
+      this.mapMountNode = document.createElement("div");
+      this.mapMountNode.className = "map-root";
+    }
+
+    if (!this.mapMountNode) {
+      return null;
+    }
+
+    if (this.mapMountNode.parentNode !== mapHost) {
+      mapHost.appendChild(this.mapMountNode);
+    }
+
+    this.setMapContainerLassoState(this.isLassoMode);
+    return this.mapMountNode;
   }
 
   async openRecordInNewTab(recordId, objectApiName) {
@@ -1789,7 +1837,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
   async waitForMapContainerReady(maxAttempts = 16) {
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-      const mapContainer = this.template.querySelector('[data-id="map"]');
+      const mapContainer = this.getMapHostElement();
       if (mapContainer) {
         return;
       }

@@ -216,12 +216,22 @@
   min-height: 0;
 }
 
-.map-root {
+.map-root-host {
   position: relative;
   z-index: 0;
   display: block;
   width: 100%;
   min-height: 18rem;
+  background: #dfe7ef;
+}
+
+.map-root {
+  position: relative;
+  z-index: 0;
+  display: block;
+  width: 100%;
+  height: 100%;
+  min-height: 100%;
   background: #dfe7ef;
 }
 
@@ -267,6 +277,8 @@
     drop-shadow(0 0 6px rgb(0 0 0 / 30%));
 }
 
+.map-frame-popout .map-root-host,
+.map-panel-popout .map-root-host,
 .map-frame-popout .map-root,
 .map-panel-popout .map-root {
   min-height: 0;
