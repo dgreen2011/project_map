@@ -1,7 +1,13 @@
 import { api, LightningElement } from "lwc";
 
 const ADD_MENU_VIEWPORT_PADDING_PX = 12;
-const SEARCHABLE_LAYER_FIELDS = ["mapLayerName", "objectApiName", "geometryType", "layerType"];
+const SEARCHABLE_LAYER_FIELDS = [
+  "mapLayerName",
+  "objectApiName",
+  "geometryType",
+  "layerType",
+  "layerStatus"
+];
 
 export default class ProjectRecordMapLayerPanel extends LightningElement {
   @api variant = "inline";
@@ -143,8 +149,7 @@ export default class ProjectRecordMapLayerPanel extends LightningElement {
       return;
     }
 
-    const path = typeof event?.composedPath === "function" ? event.composedPath() : [];
-    if (path.includes(this.template.host)) {
+    if (this.isEventInsideComponent(event)) {
       return;
     }
 
@@ -198,8 +203,14 @@ export default class ProjectRecordMapLayerPanel extends LightningElement {
     }
   }
 
+  handleAddMenuInteraction(event) {
+    event?.stopPropagation?.();
+  }
+
   handleAddMenuSearchInput(event) {
-    this.addMenuSearchTerm = event?.target?.value || "";
+    event?.stopPropagation?.();
+
+    this.addMenuSearchTerm = this.readInputValue(event);
     this.scheduleAddMenuPositioning();
   }
 
@@ -251,6 +262,18 @@ export default class ProjectRecordMapLayerPanel extends LightningElement {
 
     this.closeAddMenu({ preserveSearch: false, preserveStyle: false });
     this.dispatchComponentEvent("togglefilterpanel", { layerId });
+  }
+
+  handleCheckAllLayerFilters(event) {
+    event?.preventDefault?.();
+    event?.stopPropagation?.();
+
+    const layerId = event?.currentTarget?.dataset?.layerId;
+    if (!layerId) {
+      return;
+    }
+
+    this.dispatchComponentEvent("checkalllayerfilters", { layerId });
   }
 
   handleClearLayerFilters(event) {
@@ -341,11 +364,14 @@ export default class ProjectRecordMapLayerPanel extends LightningElement {
     }
 
     const addMenu = this.template.querySelector('[data-id="layer-add-menu"]');
-    if (!addMenu) {
+    const addMenuWrap = this.template.querySelector('[data-id="layer-add-menu-wrap"]');
+    if (!addMenu || !addMenuWrap) {
       return;
     }
 
-    addMenu.style.transform = "translateX(0)";
+    const alignment = this.determineAddMenuAlignment(addMenu, addMenuWrap);
+    this.applyTemporaryAddMenuLayout(addMenu, alignment);
+
     const rect = addMenu.getBoundingClientRect();
     const maxRight = window.innerWidth - ADD_MENU_VIEWPORT_PADDING_PX;
 
@@ -359,12 +385,76 @@ export default class ProjectRecordMapLayerPanel extends LightningElement {
       shiftX -= rect.right + shiftX - maxRight;
     }
 
-    const nextInlineStyle =
-      shiftX === 0 ? "" : `transform: translateX(${Math.round(shiftX)}px);`;
+    const nextInlineStyle = this.buildAddMenuInlineStyle(alignment, shiftX);
 
     if (nextInlineStyle !== this.addMenuInlineStyle) {
       this.addMenuInlineStyle = nextInlineStyle;
     }
+  }
+
+  determineAddMenuAlignment(addMenu, addMenuWrap) {
+    if (typeof window === "undefined") {
+      return "right";
+    }
+
+    const wrapRect = addMenuWrap.getBoundingClientRect();
+    const estimatedMenuWidth = Math.min(
+      addMenu.offsetWidth || 384,
+      Math.max(240, window.innerWidth - ADD_MENU_VIEWPORT_PADDING_PX * 2)
+    );
+    const availableToRight = window.innerWidth - wrapRect.left - ADD_MENU_VIEWPORT_PADDING_PX;
+    const availableToLeft = wrapRect.right - ADD_MENU_VIEWPORT_PADDING_PX;
+
+    return availableToRight >= estimatedMenuWidth || availableToRight > availableToLeft
+      ? "left"
+      : "right";
+  }
+
+  applyTemporaryAddMenuLayout(addMenu, alignment) {
+    addMenu.style.left = alignment === "left" ? "0" : "auto";
+    addMenu.style.right = alignment === "right" ? "0" : "auto";
+    addMenu.style.transform = "translateX(0)";
+  }
+
+  buildAddMenuInlineStyle(alignment, shiftX) {
+    const declarations = [
+      alignment === "left" ? "left: 0" : "left: auto",
+      alignment === "right" ? "right: 0" : "right: auto"
+    ];
+
+    if (shiftX) {
+      declarations.push(`transform: translateX(${Math.round(shiftX)}px)`);
+    }
+
+    return `${declarations.join("; ")};`;
+  }
+
+  isEventInsideComponent(event) {
+    const path = typeof event?.composedPath === "function" ? event.composedPath() : [];
+
+    if (path.includes(this.template.host)) {
+      return true;
+    }
+
+    if (
+      path.some(
+        (node) =>
+          node?.dataset?.addMenuRoot === "true" ||
+          node?.dataset?.addMenuWrap === "true" ||
+          node?.dataset?.addMenuToggle === "true"
+      )
+    ) {
+      return true;
+    }
+
+    const target = event?.target;
+    return Boolean(
+      target && typeof this.template.contains === "function" && this.template.contains(target)
+    );
+  }
+
+  readInputValue(event) {
+    return event?.detail?.value ?? event?.target?.value ?? "";
   }
 
   buildLayerSearchText(layer) {
