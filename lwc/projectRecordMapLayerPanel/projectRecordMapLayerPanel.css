@@ -110,10 +110,10 @@
   display: block;
 }
 
-.layer-add-menu-search lightning-input {
+.layer-add-menu-search-input {
   display: block;
   width: 100%;
-  --slds-c-input-radius-border: 0.45rem;
+  border-radius: 0.45rem;
 }
 
 .layer-add-menu-list {

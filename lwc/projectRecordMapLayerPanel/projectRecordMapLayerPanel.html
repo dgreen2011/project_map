@@ -47,16 +47,17 @@
                   onclick={handleAddMenuInteraction}
                   onmousedown={handleAddMenuInteraction}
                 >
-                  <lightning-input
+                  <input
                     data-id="add-layer-search"
+                    class="slds-input layer-add-menu-search-input"
                     type="search"
-                    variant="label-hidden"
+                    aria-label="Search layers"
                     placeholder="Search layers"
                     value={addMenuSearchValue}
                     oninput={handleAddMenuSearchInput}
                     onclick={handleAddMenuInteraction}
                     onmousedown={handleAddMenuInteraction}
-                  ></lightning-input>
+                  />
                 </div>
               </template>
 
@@ -136,23 +137,6 @@
                   class="layer-icon-button"
                   type="button"
                   data-layer-id={layer.mapLayerId}
-                  data-filter-trigger="true"
-                  onclick={handleToggleFilterPanel}
-                  title={layer.filterButtonTitle}
-                  aria-label={layer.filterButtonTitle}
-                  disabled={layer.isFilterButtonDisabled}
-                >
-                  <lightning-icon
-                    icon-name="utility:filterList"
-                    size="x-small"
-                    alternative-text="Filters"
-                  ></lightning-icon>
-                </button>
-
-                <button
-                  class="layer-icon-button"
-                  type="button"
-                  data-layer-id={layer.mapLayerId}
                   onclick={handleToggleLayerVisibility}
                   title={layer.visibilityButtonTitle}
                   aria-label={layer.visibilityButtonTitle}
@@ -172,6 +156,23 @@
                       alternative-text="Show layer on map"
                     ></lightning-icon>
                   </template>
+                </button>
+
+                <button
+                  class="layer-icon-button"
+                  type="button"
+                  data-layer-id={layer.mapLayerId}
+                  data-filter-trigger="true"
+                  onclick={handleToggleFilterPanel}
+                  title={layer.filterButtonTitle}
+                  aria-label={layer.filterButtonTitle}
+                  disabled={layer.isFilterButtonDisabled}
+                >
+                  <lightning-icon
+                    icon-name="utility:filterList"
+                    size="x-small"
+                    alternative-text="Filters"
+                  ></lightning-icon>
                 </button>
 
                 <button

@@ -92,20 +92,6 @@ export default class ProjectRecordMapBulkWorkLogModal extends LightningElement {
     return this.eligibleCount > 0;
   }
 
-  get showPreCreateWarning() {
-    return !this.hasSaveCompleted && this.ineligibleCount > 0;
-  }
-
-  get preCreateWarningText() {
-    if (!this.ineligibleCount) {
-      return "";
-    }
-
-    return `${this.ineligibleCount} selected record${
-      this.ineligibleCount === 1 ? "" : "s"
-    } do not appear to have a related Production Line Allocation and will be skipped.`;
-  }
-
   get selectionSummaryText() {
     const parts = [];
 
@@ -252,16 +238,7 @@ export default class ProjectRecordMapBulkWorkLogModal extends LightningElement {
         ? result.messages.filter((message) => Boolean(message))
         : [];
 
-      const skippedBeforeCreateMessage = this.ineligibleCount
-        ? `${this.ineligibleCount} selected record${
-            this.ineligibleCount === 1 ? "" : "s"
-          } were skipped before create because no related Production Line Allocation was found.`
-        : "";
-
-      this.resultMessages = [
-        ...(skippedBeforeCreateMessage ? [skippedBeforeCreateMessage] : []),
-        ...apexMessages
-      ];
+      this.resultMessages = apexMessages;
 
       this.createdCount = Number(result?.createdCount) || 0;
       this.skippedCount = (Number(result?.skippedCount) || 0) + this.ineligibleCount;
