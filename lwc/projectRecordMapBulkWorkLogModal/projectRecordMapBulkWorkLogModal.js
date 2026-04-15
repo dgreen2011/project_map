@@ -158,9 +158,9 @@ export default class ProjectRecordMapBulkWorkLogModal extends LightningElement {
     const nextValue = event.detail?.value ?? event.target?.value ?? "";
 
     if (fieldKey === "actualResource") {
-      this.actualResourceId = nextValue || "";
+      this.actualResourceId = this.normalizeReferenceValue(nextValue);
     } else if (fieldKey === "comments") {
-      this.comments = nextValue || "";
+      this.comments = this.normalizeString(nextValue) || "";
     }
 
     this.saveError = "";
@@ -218,13 +218,14 @@ export default class ProjectRecordMapBulkWorkLogModal extends LightningElement {
       return;
     }
 
+    this.syncFormFieldValues();
     this.isSaving = true;
 
     try {
       const request = {
         projectId: this.projectId || null,
         workLogDateIso: this.workLogDate,
-        actualResourceId: this.actualResourceId || null,
+        actualResourceId: this.normalizeReferenceValue(this.actualResourceId) || null,
         comments: this.normalizeString(this.comments) || null,
         selections: this.eligibleSelections.map((selection) => ({
           featureRecordId: selection.recordId,
@@ -330,6 +331,39 @@ export default class ProjectRecordMapBulkWorkLogModal extends LightningElement {
     const month = String(today.getMonth() + 1).padStart(2, "0");
     const day = String(today.getDate()).padStart(2, "0");
     return `${year}-${month}-${day}`;
+  }
+
+  syncFormFieldValues() {
+    const actualResourceInput = this.template.querySelector(
+      'lightning-input-field[data-field="actualResource"]'
+    );
+    const commentsInput = this.template.querySelector('lightning-input-field[data-field="comments"]');
+
+    if (actualResourceInput) {
+      this.actualResourceId = this.normalizeReferenceValue(actualResourceInput.value);
+    }
+
+    if (commentsInput) {
+      this.comments = this.normalizeString(commentsInput.value) || "";
+    }
+  }
+
+  normalizeReferenceValue(value) {
+    if (Array.isArray(value)) {
+      return value.length ? this.normalizeReferenceValue(value[0]) : "";
+    }
+
+    if (typeof value === "string") {
+      return value.trim();
+    }
+
+    if (value && typeof value === "object") {
+      return this.normalizeReferenceValue(
+        value.recordId ?? value.id ?? value.value ?? value.lookupId ?? ""
+      );
+    }
+
+    return "";
   }
 
   normalizeString(value) {

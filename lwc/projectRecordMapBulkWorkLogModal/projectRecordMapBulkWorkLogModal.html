@@ -98,6 +98,7 @@
                 <lightning-input-field
                   class="prm-bulk-work-log-actual-resource-field"
                   field-name={actualResourceFieldApiName}
+                  value={actualResourceId}
                   data-field="actualResource"
                   onchange={handleFieldChange}
                   disabled={isSaving}
@@ -108,6 +109,7 @@
                 <lightning-input-field
                   class="prm-bulk-work-log-comments-field"
                   field-name={commentsFieldApiName}
+                  value={comments}
                   data-field="comments"
                   onchange={handleFieldChange}
                   disabled={isSaving}
