@@ -52,100 +52,100 @@
                 description="Optional field set API name used to define multi-select filters for each selected layer."
             />
 
-            <!-- Legacy properties retained because the component is already in use on Lightning pages. -->
+            <!-- Deprecated legacy properties retained because Salesforce does not allow removing them from in-use Lightning pages. -->
             <property
                 name="mapLayerRecordId1"
                 type="String"
-                label="Map Layer Record Id 1"
-                description="Legacy property for the first Sitetracker Map Layer record Id."
+                label="Deprecated - Map Layer Record Id 1"
+                description="Deprecated legacy property retained so existing Lightning page assignments keep working. Leave blank for new configurations."
             />
             <property
                 name="relationshipFieldPathOverride1"
                 type="String"
-                label="Project Relationship Field Override 1"
-                description="Legacy override for the Project relationship field path for layer 1."
+                label="Deprecated - Project Relationship Field Override 1"
+                description="Deprecated legacy property retained so existing Lightning page assignments keep working. Leave blank for new configurations."
             />
             <property
                 name="filterFieldPathOverride1"
                 type="String"
-                label="Filter Field Override 1"
-                description="Legacy override for the filter field path for layer 1."
+                label="Deprecated - Filter Field Override 1"
+                description="Deprecated legacy property retained so existing Lightning page assignments keep working. Leave blank for new configurations."
             />
 
             <property
                 name="mapLayerRecordId2"
                 type="String"
-                label="Map Layer Record Id 2"
-                description="Legacy property for the second Sitetracker Map Layer record Id."
+                label="Deprecated - Map Layer Record Id 2"
+                description="Deprecated legacy property retained so existing Lightning page assignments keep working. Leave blank for new configurations."
             />
             <property
                 name="relationshipFieldPathOverride2"
                 type="String"
-                label="Project Relationship Field Override 2"
-                description="Legacy override for the Project relationship field path for layer 2."
+                label="Deprecated - Project Relationship Field Override 2"
+                description="Deprecated legacy property retained so existing Lightning page assignments keep working. Leave blank for new configurations."
             />
             <property
                 name="filterFieldPathOverride2"
                 type="String"
-                label="Filter Field Override 2"
-                description="Legacy override for the filter field path for layer 2."
+                label="Deprecated - Filter Field Override 2"
+                description="Deprecated legacy property retained so existing Lightning page assignments keep working. Leave blank for new configurations."
             />
 
             <property
                 name="mapLayerRecordId3"
                 type="String"
-                label="Map Layer Record Id 3"
-                description="Legacy property for the third Sitetracker Map Layer record Id."
+                label="Deprecated - Map Layer Record Id 3"
+                description="Deprecated legacy property retained so existing Lightning page assignments keep working. Leave blank for new configurations."
             />
             <property
                 name="relationshipFieldPathOverride3"
                 type="String"
-                label="Project Relationship Field Override 3"
-                description="Legacy override for the Project relationship field path for layer 3."
+                label="Deprecated - Project Relationship Field Override 3"
+                description="Deprecated legacy property retained so existing Lightning page assignments keep working. Leave blank for new configurations."
             />
             <property
                 name="filterFieldPathOverride3"
                 type="String"
-                label="Filter Field Override 3"
-                description="Legacy override for the filter field path for layer 3."
+                label="Deprecated - Filter Field Override 3"
+                description="Deprecated legacy property retained so existing Lightning page assignments keep working. Leave blank for new configurations."
             />
 
             <property
                 name="mapLayerRecordId4"
                 type="String"
-                label="Map Layer Record Id 4"
-                description="Legacy property for the fourth Sitetracker Map Layer record Id."
+                label="Deprecated - Map Layer Record Id 4"
+                description="Deprecated legacy property retained so existing Lightning page assignments keep working. Leave blank for new configurations."
             />
             <property
                 name="relationshipFieldPathOverride4"
                 type="String"
-                label="Project Relationship Field Override 4"
-                description="Legacy override for the Project relationship field path for layer 4."
+                label="Deprecated - Project Relationship Field Override 4"
+                description="Deprecated legacy property retained so existing Lightning page assignments keep working. Leave blank for new configurations."
             />
             <property
                 name="filterFieldPathOverride4"
                 type="String"
-                label="Filter Field Override 4"
-                description="Legacy override for the filter field path for layer 4."
+                label="Deprecated - Filter Field Override 4"
+                description="Deprecated legacy property retained so existing Lightning page assignments keep working. Leave blank for new configurations."
             />
 
             <property
                 name="mapLayerRecordId5"
                 type="String"
-                label="Map Layer Record Id 5"
-                description="Legacy property for the fifth Sitetracker Map Layer record Id."
+                label="Deprecated - Map Layer Record Id 5"
+                description="Deprecated legacy property retained so existing Lightning page assignments keep working. Leave blank for new configurations."
             />
             <property
                 name="relationshipFieldPathOverride5"
                 type="String"
-                label="Project Relationship Field Override 5"
-                description="Legacy override for the Project relationship field path for layer 5."
+                label="Deprecated - Project Relationship Field Override 5"
+                description="Deprecated legacy property retained so existing Lightning page assignments keep working. Leave blank for new configurations."
             />
             <property
                 name="filterFieldPathOverride5"
                 type="String"
-                label="Filter Field Override 5"
-                description="Legacy override for the filter field path for layer 5."
+                label="Deprecated - Filter Field Override 5"
+                description="Deprecated legacy property retained so existing Lightning page assignments keep working. Leave blank for new configurations."
             />
 
             <supportedFormFactors>

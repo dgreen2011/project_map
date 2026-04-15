@@ -53,7 +53,7 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   @api segmentDetailFieldSetApiName;
   @api layerFilterFieldSetApiName;
 
-  // Legacy inputs retained for backward compatibility.
+  // Deprecated legacy inputs retained because in-use Lightning page properties cannot be removed.
   @api mapLayerRecordId1;
   @api relationshipFieldPathOverride1;
   @api filterFieldPathOverride1;

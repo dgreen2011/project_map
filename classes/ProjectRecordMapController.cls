@@ -16,7 +16,7 @@ public with sharing class ProjectRecordMapController {
         @AuraEnabled public Id projectId { get; set; }
         @AuraEnabled public String layerFilterFieldSetApiName { get; set; }
 
-        // Retained for backward compatibility with prior component configs.
+        // Deprecated legacy inputs retained because in-use Lightning page properties cannot be removed.
         @AuraEnabled public Id mapLayerRecordId1 { get; set; }
         @AuraEnabled public Id mapLayerRecordId2 { get; set; }
         @AuraEnabled public Id mapLayerRecordId3 { get; set; }
