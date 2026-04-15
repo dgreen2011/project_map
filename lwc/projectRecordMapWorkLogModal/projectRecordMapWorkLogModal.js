@@ -22,6 +22,7 @@ const WORK_LOG_ACTIVITY_FIELD = "sitetracker__Activity__c";
 const WORK_LOG_ATTACHMENT_FIELD = "sitetracker__Attachment__c";
 const WORK_LOG_GIS_PATH_FIELD = "sitetracker__st_GIS_Path__c";
 const SELECTION_MODE_FULL = "full";
+const SELECTION_MODE_PARTIAL = "partial";
 
 const MAX_DIRECT_UPLOAD_FILE_SIZE_BYTES = 3 * 1024 * 1024;
 const MAX_BASE64_PAYLOAD_LENGTH = 3700000;
@@ -394,6 +395,8 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
 
   handleSegmentPathSelectionChange(event) {
     const detail = event.detail || {};
+    const previousSelectionMode = this.segmentSelectionMode;
+
     this.segmentPathValue = detail.pathValue || "";
     this.segmentPathValid = Boolean(detail.isValid);
     this.segmentSelectionMode = detail.selectionMode ?? this.segmentSelectionMode;
@@ -402,12 +405,20 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
 
     if (this.segmentSelectionMode === SELECTION_MODE_FULL) {
       this.applyFullSegmentQuantity();
+      return;
+    }
+
+    if (
+      this.segmentSelectionMode === SELECTION_MODE_PARTIAL &&
+      previousSelectionMode !== SELECTION_MODE_PARTIAL
+    ) {
+      this.clearQuantityFieldValue();
     }
   }
 
   applyFullSegmentQuantity() {
     const quantityFieldApiName = this.quantityFieldApiName;
-    const segmentTotalLength = this.segmentTotalLength;
+    const segmentTotalLength = this.formatQuantityValue(this.segmentTotalLength);
 
     if (!quantityFieldApiName) {
       return;
@@ -417,7 +428,28 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
       return;
     }
 
-    this.upsertFieldValue(quantityFieldApiName, String(segmentTotalLength));
+    this.upsertFieldValue(quantityFieldApiName, segmentTotalLength);
+  }
+
+  clearQuantityFieldValue() {
+    if (!this.quantityFieldApiName) {
+      return;
+    }
+
+    this.upsertFieldValue(this.quantityFieldApiName, null);
+  }
+
+  formatQuantityValue(value) {
+    if (value === null || value === undefined || value === "") {
+      return null;
+    }
+
+    const numericValue = Number(value);
+    if (!Number.isFinite(numericValue)) {
+      return String(value);
+    }
+
+    return numericValue.toFixed(2);
   }
 
   handlePendingFilesChange(event) {
@@ -478,9 +510,9 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
 
     if (this.showSegmentPathEditor && !this.segmentPathValid) {
       this.workLogSaveError =
-        this.segmentSelectionMode === "partial"
+        this.segmentSelectionMode === SELECTION_MODE_PARTIAL
           ? "Choose the completed start point and end point on the Segment before creating the Work Log."
-          : this.segmentSelectionMode === "full"
+          : this.segmentSelectionMode === SELECTION_MODE_FULL
             ? "Select the completed Segment path before creating the Work Log."
             : "Choose Full Segment or Partial Segment before creating the Work Log.";
       return;
