@@ -829,6 +829,7 @@ public with sharing class ProjectRecordMapWorkLogService {
                 new ProjectRecordMapController.WorkLogFormField();
             formField.apiName = fieldApiName;
             formField.label = fieldDescribe.getLabel();
+            formField.isRequired = false;
             formFields.add(formField);
         }
 
@@ -892,6 +893,7 @@ public with sharing class ProjectRecordMapWorkLogService {
                 new ProjectRecordMapController.WorkLogFormField();
             formField.apiName = fieldApiName;
             formField.label = fieldDescribe.getLabel();
+            formField.isRequired = member.getRequired() || member.getDbRequired();
             formFields.add(formField);
         }
 

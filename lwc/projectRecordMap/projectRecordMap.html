@@ -44,10 +44,16 @@
               label="Refresh"
               title="Reload the current project map data"
               onclick={handleRefreshClick}
-              disabled={isLoading}
+              disabled={isRefreshDisabled}
             ></lightning-button>
           </div>
         </div>
+
+        <template if:true={showMissingProjectContextMessage}>
+          <div class="message message-info">
+            {missingProjectContextMessage}
+          </div>
+        </template>
 
         <template if:true={showNoConfiguredLayers}>
           <div class="message message-info">
@@ -153,7 +159,7 @@
               label="Refresh"
               title="Reload the current project map data"
               onclick={handleRefreshClick}
-              disabled={isLoading}
+              disabled={isRefreshDisabled}
             ></lightning-button>
           </div>
         </div>

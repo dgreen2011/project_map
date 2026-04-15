@@ -33,6 +33,8 @@ import {
 
 const DEFAULT_MAP_CENTER = [39.8283, -98.5795];
 const DEFAULT_MAP_ZOOM = 4;
+const SALESFORCE_ID_PATTERN = /^[a-zA-Z0-9]{15}(?:[a-zA-Z0-9]{3})?$/;
+const NO_RECORD_CONTEXT_SIGNATURE = "__no-record-context__";
 
 const SITE_OBJECT_API_NAME = "sitetracker__site__c";
 const SEGMENT_OBJECT_API_NAME = "sitetracker__segment__c";
@@ -244,11 +246,21 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   get showNoConfiguredLayers() {
-    return !this.isLoading && !this.errorMessage && !this.hasConfiguredLayers;
+    return !this.isLoading && !this.errorMessage && this.hasValidProjectContext && !this.hasConfiguredLayers;
+  }
+
+  get showMissingProjectContextMessage() {
+    return !this.isLoading && !this.errorMessage && this.initialLoadComplete && !this.hasValidProjectContext;
   }
 
   get showNoSelectedLayers() {
-    return !this.isLoading && !this.errorMessage && this.hasConfiguredLayers && !this.hasSelectedLayers;
+    return (
+      !this.isLoading &&
+      !this.errorMessage &&
+      this.hasValidProjectContext &&
+      this.hasConfiguredLayers &&
+      !this.hasSelectedLayers
+    );
   }
 
   get totalRenderedFeatureCount() {
@@ -295,6 +307,22 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     return this.showInitialLoadingOverlay
       ? "content-surface content-surface-pending"
       : "content-surface";
+  }
+
+  get hasValidProjectContext() {
+    return Boolean(this.normalizedProjectId);
+  }
+
+  get normalizedProjectId() {
+    return this.normalizeSalesforceId(this.recordId);
+  }
+
+  get missingProjectContextMessage() {
+    return "Map data loads only when Salesforce provides a valid Project record context. Open an actual Project record to preview this component.";
+  }
+
+  get isRefreshDisabled() {
+    return this.isLoading || !this.hasValidProjectContext;
   }
 
   ensurePopupActionListener() {
@@ -507,7 +535,16 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   refreshIfNeeded() {
-    if (!this.librariesReady || !this.mapReady || !this.recordId) {
+    if (!this.librariesReady || !this.mapReady) {
+      return;
+    }
+
+    if (!this.hasValidProjectContext) {
+      if (this.lastRequestSignature === NO_RECORD_CONTEXT_SIGNATURE) {
+        return;
+      }
+
+      this.handleMissingProjectContext();
       return;
     }
 
@@ -526,26 +563,26 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
   buildRequestPayload() {
     return {
-      projectId: this.recordId || null,
+      projectId: this.normalizedProjectId,
       layerFilterFieldSetApiName: this.normalizeString(this.layerFilterFieldSetApiName),
 
-      mapLayerRecordId1: this.normalizeString(this.mapLayerRecordId1),
+      mapLayerRecordId1: this.normalizeSalesforceId(this.mapLayerRecordId1),
       relationshipFieldPathOverride1: this.normalizeString(this.relationshipFieldPathOverride1),
       filterFieldPathOverride1: this.normalizeString(this.filterFieldPathOverride1),
 
-      mapLayerRecordId2: this.normalizeString(this.mapLayerRecordId2),
+      mapLayerRecordId2: this.normalizeSalesforceId(this.mapLayerRecordId2),
       relationshipFieldPathOverride2: this.normalizeString(this.relationshipFieldPathOverride2),
       filterFieldPathOverride2: this.normalizeString(this.filterFieldPathOverride2),
 
-      mapLayerRecordId3: this.normalizeString(this.mapLayerRecordId3),
+      mapLayerRecordId3: this.normalizeSalesforceId(this.mapLayerRecordId3),
       relationshipFieldPathOverride3: this.normalizeString(this.relationshipFieldPathOverride3),
       filterFieldPathOverride3: this.normalizeString(this.filterFieldPathOverride3),
 
-      mapLayerRecordId4: this.normalizeString(this.mapLayerRecordId4),
+      mapLayerRecordId4: this.normalizeSalesforceId(this.mapLayerRecordId4),
       relationshipFieldPathOverride4: this.normalizeString(this.relationshipFieldPathOverride4),
       filterFieldPathOverride4: this.normalizeString(this.filterFieldPathOverride4),
 
-      mapLayerRecordId5: this.normalizeString(this.mapLayerRecordId5),
+      mapLayerRecordId5: this.normalizeSalesforceId(this.mapLayerRecordId5),
       relationshipFieldPathOverride5: this.normalizeString(this.relationshipFieldPathOverride5),
       filterFieldPathOverride5: this.normalizeString(this.filterFieldPathOverride5)
     };
@@ -564,7 +601,8 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
   }
 
   async loadProjectMapData() {
-    if (!this.recordId) {
+    if (!this.hasValidProjectContext) {
+      this.handleMissingProjectContext();
       return;
     }
 
@@ -622,6 +660,24 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
     } finally {
       this.isLoading = false;
     }
+  }
+
+  handleMissingProjectContext() {
+    this.cancelLassoMode({
+      clearSelection: true,
+      closeBulkModal: true
+    });
+    this.closeAllFilterMenus();
+    this.isLoading = false;
+    this.errorMessage = "";
+    this.tileWarningMessage = "";
+    this.lastRequestSignature = NO_RECORD_CONTEXT_SIGNATURE;
+    this.allLayers = [];
+    this.clearRenderedFeatures();
+    this.clearSelectedFeatures();
+    this.resetMapView();
+    this.markInitialLoadComplete();
+    this.scheduleMapViewportSync({ fitToBounds: false });
   }
 
   async applyResponse(response) {
@@ -1858,6 +1914,13 @@ export default class ProjectRecordMap extends NavigationMixin(LightningElement) 
 
   normalizeString(value) {
     return typeof value === "string" ? value.trim() : value;
+  }
+
+  normalizeSalesforceId(value) {
+    const normalizedValue = this.normalizeString(value);
+    return typeof normalizedValue === "string" && SALESFORCE_ID_PATTERN.test(normalizedValue)
+      ? normalizedValue
+      : null;
   }
 
   toNumber(value) {

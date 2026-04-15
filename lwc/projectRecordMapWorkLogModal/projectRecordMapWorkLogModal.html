@@ -124,8 +124,11 @@
               <template for:each={workLogVisibleFields} for:item="fieldItem">
                 <div key={fieldItem.key} class="prm-work-log-field-cell">
                   <lightning-input-field
+                    data-field-scope="visible"
                     field-name={fieldItem.apiName}
                     value={fieldItem.value}
+                    required={fieldItem.isRequired}
+                    onchange={handleWorkLogFieldChange}
                   ></lightning-input-field>
                 </div>
               </template>

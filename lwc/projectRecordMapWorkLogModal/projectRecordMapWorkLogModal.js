@@ -327,25 +327,32 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
         ? context.formFields
         : [];
 
-    const orderedFieldApiNames = rawFieldSetFields
-      .map((fieldItem) => fieldItem?.apiName || fieldItem?.fieldApiName || fieldItem?.fullName)
-      .filter((apiName) => Boolean(apiName));
+    const orderedFieldDescriptors = rawFieldSetFields
+      .map((fieldItem) => ({
+        apiName: fieldItem?.apiName || fieldItem?.fieldApiName || fieldItem?.fullName,
+        label: fieldItem?.label || fieldItem?.apiName || fieldItem?.fieldApiName || "",
+        isRequired: Boolean(fieldItem?.isRequired)
+      }))
+      .filter((fieldItem) => Boolean(fieldItem.apiName));
 
     const visibleFields = [];
     const hiddenFields = [];
     const seenFieldNames = new Set();
 
-    orderedFieldApiNames.forEach((apiName) => {
+    orderedFieldDescriptors.forEach((fieldDescriptor) => {
+      const apiName = fieldDescriptor.apiName;
       if (seenFieldNames.has(apiName)) {
         return;
       }
 
       seenFieldNames.add(apiName);
 
-      const fieldModel = this.createFieldModel(
+      const fieldModel = this.createFieldModel({
         apiName,
-        this.getDefaultFieldValue(defaultValues, apiName)
-      );
+        label: fieldDescriptor.label,
+        value: this.getDefaultFieldValue(defaultValues, apiName),
+        isRequired: fieldDescriptor.isRequired
+      });
 
       if (this.shouldHideWorkLogField(apiName)) {
         hiddenFields.push(fieldModel);
@@ -360,7 +367,13 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
       }
 
       seenFieldNames.add(apiName);
-      hiddenFields.push(this.createFieldModel(apiName, this.getDefaultFieldValue(defaultValues, apiName)));
+      hiddenFields.push(
+        this.createFieldModel({
+          apiName,
+          value: this.getDefaultFieldValue(defaultValues, apiName),
+          isRequired: false
+        })
+      );
     });
 
     return {
@@ -369,11 +382,13 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
     };
   }
 
-  createFieldModel(apiName, value) {
+  createFieldModel({ apiName, label = "", value = null, isRequired = false } = {}) {
     return {
       key: `${apiName}::${value ?? ""}`,
       apiName,
-      value
+      label,
+      value,
+      isRequired
     };
   }
 
@@ -474,7 +489,10 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
     const visibleFieldIndex = this.workLogVisibleFields.findIndex((fieldItem) => fieldItem.apiName === apiName);
     if (visibleFieldIndex >= 0) {
       const nextVisibleFields = [...this.workLogVisibleFields];
-      nextVisibleFields[visibleFieldIndex] = this.createFieldModel(apiName, normalizedValue);
+      nextVisibleFields[visibleFieldIndex] = this.createFieldModel({
+        ...nextVisibleFields[visibleFieldIndex],
+        value: normalizedValue
+      });
       this.workLogVisibleFields = nextVisibleFields;
       return;
     }
@@ -482,12 +500,26 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
     const hiddenFieldIndex = this.workLogHiddenFields.findIndex((fieldItem) => fieldItem.apiName === apiName);
     if (hiddenFieldIndex >= 0) {
       const nextHiddenFields = [...this.workLogHiddenFields];
-      nextHiddenFields[hiddenFieldIndex] = this.createFieldModel(apiName, normalizedValue);
+      nextHiddenFields[hiddenFieldIndex] = this.createFieldModel({
+        ...nextHiddenFields[hiddenFieldIndex],
+        value: normalizedValue
+      });
       this.workLogHiddenFields = nextHiddenFields;
       return;
     }
 
-    this.workLogHiddenFields = [...this.workLogHiddenFields, this.createFieldModel(apiName, normalizedValue)];
+    this.workLogHiddenFields = [
+      ...this.workLogHiddenFields,
+      this.createFieldModel({
+        apiName,
+        value: normalizedValue,
+        isRequired: false
+      })
+    ];
+  }
+
+  handleWorkLogFieldChange() {
+    this.workLogSaveError = "";
   }
 
   handleCloseClick() {
@@ -524,6 +556,11 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
       return;
     }
 
+    if (!this.reportVisibleFieldValidity()) {
+      this.workLogSaveError = "Complete the required Work Log fields before creating the record.";
+      return;
+    }
+
     this.isSavingWorkLog = true;
     this.workLogSaveError = "";
 
@@ -533,6 +570,18 @@ export default class ProjectRecordMapWorkLogModal extends NavigationMixin(Lightn
       this.isSavingWorkLog = false;
       this.workLogSaveError = this.reduceError(error);
     }
+  }
+
+  reportVisibleFieldValidity() {
+    const visibleInputs = Array.from(
+      this.template.querySelectorAll('lightning-input-field[data-field-scope="visible"]')
+    );
+
+    return visibleInputs.reduce((isValid, inputField) => {
+      const fieldValid =
+        typeof inputField.reportValidity === "function" ? inputField.reportValidity() : true;
+      return isValid && fieldValid;
+    }, true);
   }
 
   buildSubmitFieldValues() {

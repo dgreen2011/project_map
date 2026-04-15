@@ -178,6 +178,7 @@ public with sharing class ProjectRecordMapController {
     public class WorkLogFormField {
         @AuraEnabled public String apiName { get; set; }
         @AuraEnabled public String label { get; set; }
+        @AuraEnabled public Boolean isRequired { get; set; }
     }
 
     public class WorkLogFileUploadRequest {
