@@ -353,6 +353,10 @@
   flex-wrap: wrap;
 }
 
+.map-popout-close-button {
+  flex: 0 0 auto;
+}
+
 .map-popout-body {
   position: relative;
   flex: 1 1 auto;

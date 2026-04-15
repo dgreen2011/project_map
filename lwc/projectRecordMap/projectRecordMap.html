@@ -161,6 +161,16 @@
               onclick={handleRefreshClick}
               disabled={isRefreshDisabled}
             ></lightning-button>
+
+            <button
+              class="map-expand-button map-popout-close-button"
+              type="button"
+              title="Close expanded map"
+              aria-label="Close expanded map"
+              onclick={handleCloseMapExpanded}
+            >
+              <span class="map-expand-button-icon" aria-hidden="true">×</span>
+            </button>
           </div>
         </div>
 
@@ -208,16 +218,6 @@
                   disabled={isLassoButtonDisabled}
                 >
                   <span class="map-expand-button-icon" aria-hidden="true">{lassoButtonIcon}</span>
-                </button>
-
-                <button
-                  class="map-expand-button"
-                  type="button"
-                  title={mapExpandButtonTitle}
-                  aria-label={mapExpandButtonTitle}
-                  onclick={handleToggleMapExpanded}
-                >
-                  <span class="map-expand-button-icon" aria-hidden="true">{mapExpandButtonIcon}</span>
                 </button>
               </div>
 
