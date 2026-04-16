@@ -98,6 +98,17 @@ export function hydrateLayerState(layer) {
   const nextFilterFields = Array.isArray(layer?.filterFields)
     ? layer.filterFields.map((filterField) => hydrateFilterFieldState(filterField))
     : [];
+  const filterFieldsWithOptions = nextFilterFields.filter(
+    (filterField) => filterField?.hasOptions && (Number(filterField?.optionCount) || 0) > 0
+  );
+  const areAllFilterValuesSelected =
+    filterFieldsWithOptions.length > 0 &&
+    filterFieldsWithOptions.every(
+      (filterField) => (Number(filterField?.selectedCount) || 0) >= (Number(filterField?.optionCount) || 0)
+    );
+  const areNoFilterValuesSelected =
+    filterFieldsWithOptions.length > 0 &&
+    filterFieldsWithOptions.every((filterField) => (Number(filterField?.selectedCount) || 0) === 0);
 
   const nextLayer = {
     ...layer,
@@ -115,6 +126,16 @@ export function hydrateLayerState(layer) {
     activeFilterCount,
     visibleFeatureCount,
     filterSummaryText: buildLayerFilterSummaryText(nextLayer, activeFilterCount),
+    areAllFilterValuesSelected,
+    areNoFilterValuesSelected,
+    selectAllFiltersButtonClass: buildFilterQuickActionButtonClass(areAllFilterValuesSelected),
+    selectNoneFiltersButtonClass: buildFilterQuickActionButtonClass(areNoFilterValuesSelected),
+    selectAllFiltersTitle: areAllFilterValuesSelected
+      ? "All filter values selected"
+      : "Select all filter values",
+    selectNoneFiltersTitle: areNoFilterValuesSelected
+      ? "No filter values selected"
+      : "Select no filter values",
     selectionButtonLabel: nextLayer.isSelected ? "Remove" : "Add",
     selectionButtonTitle: nextLayer.isSelected ? "Remove layer from pane" : "Add layer to pane",
     isFilterButtonDisabled: !nextLayer.hasFilterControl,
@@ -452,6 +473,12 @@ function safeParseJson(value) {
 
 function normalizeString(value) {
   return typeof value === "string" ? value.trim() : value;
+}
+
+function buildFilterQuickActionButtonClass(isActive = false) {
+  return isActive
+    ? "layer-filter-quick-action layer-filter-quick-action-active"
+    : "layer-filter-quick-action";
 }
 
 function toNumber(value) {

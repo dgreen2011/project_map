@@ -227,27 +227,27 @@
                   <div class="layer-filter-panel-header">
                     <div class="layer-filter-panel-title">Layer Filters</div>
 
-                    <div class="layer-filter-panel-actions">
+                    <div class="layer-filter-panel-actions" role="group" aria-label="Quick filter selection">
                       <button
-                        class="layer-filter-check-all-button"
+                        class={layer.selectAllFiltersButtonClass}
                         type="button"
                         data-layer-id={layer.mapLayerId}
                         onclick={handleCheckAllLayerFilters}
-                        title="Check all filters"
-                        aria-label="Check all filters"
+                        title={layer.selectAllFiltersTitle}
+                        aria-label={layer.selectAllFiltersTitle}
                       >
-                        Check all
+                        All
                       </button>
 
                       <button
-                        class="layer-filter-clear-button"
+                        class={layer.selectNoneFiltersButtonClass}
                         type="button"
                         data-layer-id={layer.mapLayerId}
                         onclick={handleClearLayerFilters}
-                        title="Clear all filters"
-                        aria-label="Clear all filters"
+                        title={layer.selectNoneFiltersTitle}
+                        aria-label={layer.selectNoneFiltersTitle}
                       >
-                        Clear
+                        None
                       </button>
                     </div>
                   </div>
