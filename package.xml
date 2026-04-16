@@ -18,10 +18,5 @@
         <members>projectRecordMapWorkLogModal</members>
         <name>LightningComponentBundle</name>
     </types>
-    <types>
-        <members>sitetracker__Map_Layer__c.Default_Layer_on_Project_Map__c</members>
-        <members>sitetracker__Map_Object_Configuration__c.Project_Lookup__c</members>
-        <name>CustomField</name>
-    </types>
     <version>63.0</version>
 </Package>
