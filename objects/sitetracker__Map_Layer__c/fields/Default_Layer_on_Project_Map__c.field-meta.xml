@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<CustomField xmlns="http://soap.sforce.com/2006/04/metadata">
+    <fullName>Default_Layer_on_Project_Map__c</fullName>
+    <defaultValue>false</defaultValue>
+    <description>Marks a map layer to load by default on the project map.</description>
+    <inlineHelpText>Select this when the layer should appear by default on the project map.</inlineHelpText>
+    <label>Default Layer on Project Map</label>
+    <type>Checkbox</type>
+</CustomField>

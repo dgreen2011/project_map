@@ -8,6 +8,11 @@ public with sharing class ProjectRecordMapLayerService {
     private static final String SEGMENT_GEOMETRY_FIELD_API = ProjectRecordMapController.SEGMENT_GEOMETRY_FIELD_API;
     private static final String WORK_LOG_FALLBACK_LAT_FIELD = ProjectRecordMapController.WORK_LOG_FALLBACK_LAT_FIELD;
     private static final String WORK_LOG_FALLBACK_LNG_FIELD = ProjectRecordMapController.WORK_LOG_FALLBACK_LNG_FIELD;
+    private static final String MAP_LAYER_OBJECT_API = 'sitetracker__Map_Layer__c';
+    private static final String MAP_OBJECT_CONFIGURATION_OBJECT_API =
+        'sitetracker__Map_Object_Configuration__c';
+    private static final String DEFAULT_LAYER_FIELD_API = 'Default_Layer_on_Project_Map__c';
+    private static final String PROJECT_LOOKUP_FIELD_API = 'Project_Lookup__c';
 
     private static final Pattern SAFE_FIELD_PATH_PATTERN =
         Pattern.compile('^[A-Za-z][A-Za-z0-9_]*(\\.[A-Za-z][A-Za-z0-9_]*)*$');
@@ -166,7 +171,7 @@ public with sharing class ProjectRecordMapLayerService {
         layer.mapLayerName = mapLayer.Name;
         layer.layerType = mapLayer.sitetracker__Layer_Type__c;
         layer.layerStatus = mapLayer.sitetracker__Status__c;
-        layer.isDefaultSelected = mapLayer.Default_Layer_on_Project_Map__c;
+        layer.isDefaultSelected = getOptionalBooleanFieldValue(mapLayer, DEFAULT_LAYER_FIELD_API);
         layer.popupFieldsRawJson = mapLayer.sitetracker__Popup_Fields__c;
 
         try {
@@ -363,9 +368,14 @@ public with sharing class ProjectRecordMapLayerService {
                 'componentOverride'
             ));
         }
-        if (String.isNotBlank(mapObjectConfig.Project_Lookup__c)) {
+        String projectLookupFieldPath = getOptionalStringFieldValue(
+            mapObjectConfig,
+            PROJECT_LOOKUP_FIELD_API
+        );
+
+        if (String.isNotBlank(projectLookupFieldPath)) {
             candidates.add(new FieldPathCandidate(
-                mapObjectConfig.Project_Lookup__c,
+                projectLookupFieldPath,
                 'mapObjectConfiguration.projectLookup'
             ));
         }
@@ -481,57 +491,68 @@ public with sharing class ProjectRecordMapLayerService {
             return new Map<Id, sitetracker__Map_Layer__c>();
         }
 
-        return new Map<Id, sitetracker__Map_Layer__c>([
-            SELECT
-                Id,
-                Name,
-                Default_Layer_on_Project_Map__c,
-                sitetracker__Layer_Type__c,
-                sitetracker__Status__c,
-                sitetracker__Layer_Styling__c,
-                sitetracker__Popup_Fields__c,
-                sitetracker__Relationship__c,
-                sitetracker__Relationship_to_Use__c,
-                sitetracker__Map_Object_Configuration__c,
-                sitetracker__Map_Object_Configuration__r.Id,
-                sitetracker__Map_Object_Configuration__r.Name,
-                sitetracker__Map_Object_Configuration__r.Project_Lookup__c,
-                sitetracker__Map_Object_Configuration__r.sitetracker__Map_Object__c,
-                sitetracker__Map_Object_Configuration__r.sitetracker__Geometry_Type__c,
-                sitetracker__Map_Object_Configuration__r.sitetracker__Coordinates_Field__c,
-                sitetracker__Map_Object_Configuration__r.sitetracker__Latitude_Field__c,
-                sitetracker__Map_Object_Configuration__r.sitetracker__Longitude_Field__c
-            FROM sitetracker__Map_Layer__c
-            WHERE Id IN :mapLayerIds
-        ]);
+        Map<Id, sitetracker__Map_Layer__c> mapLayersById = new Map<Id, sitetracker__Map_Layer__c>();
+
+        for (SObject mapLayerRecord : Database.query(
+            'SELECT ' + String.join(getMapLayerSelectFields(), ', ') +
+            ' FROM ' + MAP_LAYER_OBJECT_API +
+            ' WHERE Id IN :mapLayerIds'
+        )) {
+            sitetracker__Map_Layer__c typedMapLayer = (sitetracker__Map_Layer__c)mapLayerRecord;
+            mapLayersById.put(typedMapLayer.Id, typedMapLayer);
+        }
+
+        return mapLayersById;
     }
 
     private static List<sitetracker__Map_Layer__c> getAvailableProjectMapLayers() {
-        return [
-            SELECT
-                Id,
-                Name,
-                Default_Layer_on_Project_Map__c,
-                sitetracker__Layer_Type__c,
-                sitetracker__Status__c,
-                sitetracker__Layer_Styling__c,
-                sitetracker__Popup_Fields__c,
-                sitetracker__Relationship__c,
-                sitetracker__Relationship_to_Use__c,
-                sitetracker__Map_Object_Configuration__c,
-                sitetracker__Map_Object_Configuration__r.Id,
-                sitetracker__Map_Object_Configuration__r.Name,
-                sitetracker__Map_Object_Configuration__r.Project_Lookup__c,
-                sitetracker__Map_Object_Configuration__r.sitetracker__Map_Object__c,
-                sitetracker__Map_Object_Configuration__r.sitetracker__Geometry_Type__c,
-                sitetracker__Map_Object_Configuration__r.sitetracker__Coordinates_Field__c,
-                sitetracker__Map_Object_Configuration__r.sitetracker__Latitude_Field__c,
-                sitetracker__Map_Object_Configuration__r.sitetracker__Longitude_Field__c
-            FROM sitetracker__Map_Layer__c
-            WHERE sitetracker__Layer_Type__c = :SUPPORTED_LAYER_TYPE
-            AND sitetracker__Map_Object_Configuration__c != null
-            ORDER BY Default_Layer_on_Project_Map__c DESC, Name ASC
-        ];
+        List<sitetracker__Map_Layer__c> availableLayers = new List<sitetracker__Map_Layer__c>();
+        String orderByClause = doesFieldExist(MAP_LAYER_OBJECT_API, DEFAULT_LAYER_FIELD_API)
+            ? ' ORDER BY ' + DEFAULT_LAYER_FIELD_API + ' DESC, Name ASC'
+            : ' ORDER BY Name ASC';
+
+        for (SObject mapLayerRecord : Database.query(
+            'SELECT ' + String.join(getMapLayerSelectFields(), ', ') +
+            ' FROM ' + MAP_LAYER_OBJECT_API +
+            ' WHERE sitetracker__Layer_Type__c = :SUPPORTED_LAYER_TYPE' +
+            ' AND sitetracker__Map_Object_Configuration__c != null' +
+            orderByClause
+        )) {
+            availableLayers.add((sitetracker__Map_Layer__c)mapLayerRecord);
+        }
+
+        return availableLayers;
+    }
+
+    private static List<String> getMapLayerSelectFields() {
+        List<String> selectFields = new List<String>{
+            'Id',
+            'Name',
+            'sitetracker__Layer_Type__c',
+            'sitetracker__Status__c',
+            'sitetracker__Layer_Styling__c',
+            'sitetracker__Popup_Fields__c',
+            'sitetracker__Relationship__c',
+            'sitetracker__Relationship_to_Use__c',
+            'sitetracker__Map_Object_Configuration__c',
+            'sitetracker__Map_Object_Configuration__r.Id',
+            'sitetracker__Map_Object_Configuration__r.Name',
+            'sitetracker__Map_Object_Configuration__r.sitetracker__Map_Object__c',
+            'sitetracker__Map_Object_Configuration__r.sitetracker__Geometry_Type__c',
+            'sitetracker__Map_Object_Configuration__r.sitetracker__Coordinates_Field__c',
+            'sitetracker__Map_Object_Configuration__r.sitetracker__Latitude_Field__c',
+            'sitetracker__Map_Object_Configuration__r.sitetracker__Longitude_Field__c'
+        };
+
+        if (doesFieldExist(MAP_LAYER_OBJECT_API, DEFAULT_LAYER_FIELD_API)) {
+            selectFields.add(DEFAULT_LAYER_FIELD_API);
+        }
+
+        if (doesFieldExist(MAP_OBJECT_CONFIGURATION_OBJECT_API, PROJECT_LOOKUP_FIELD_API)) {
+            selectFields.add('sitetracker__Map_Object_Configuration__r.' + PROJECT_LOOKUP_FIELD_API);
+        }
+
+        return selectFields;
     }
 
     private static List<SObject> queryLayerRecords(
@@ -1193,6 +1214,37 @@ public with sharing class ProjectRecordMapLayerService {
         }
 
         return globalDescribe.get(objectApiName).getDescribe();
+    }
+
+    private static Boolean doesFieldExist(String objectApiName, String fieldApiName) {
+        return getObjectDescribe(objectApiName).fields.getMap().containsKey(fieldApiName);
+    }
+
+    private static Boolean getOptionalBooleanFieldValue(SObject recordItem, String fieldApiName) {
+        Object fieldValue = getOptionalFieldValue(recordItem, fieldApiName);
+        return fieldValue instanceof Boolean ? (Boolean)fieldValue : false;
+    }
+
+    private static String getOptionalStringFieldValue(SObject recordItem, String fieldApiName) {
+        Object fieldValue = getOptionalFieldValue(recordItem, fieldApiName);
+        return fieldValue == null ? null : String.valueOf(fieldValue);
+    }
+
+    private static Object getOptionalFieldValue(SObject recordItem, String fieldApiName) {
+        if (recordItem == null || String.isBlank(fieldApiName)) {
+            return null;
+        }
+
+        Map<String, Schema.SObjectField> fieldMap = recordItem.getSObjectType().getDescribe().fields.getMap();
+        if (!fieldMap.containsKey(fieldApiName)) {
+            return null;
+        }
+
+        try {
+            return recordItem.get(fieldApiName);
+        } catch (SObjectException ex) {
+            return null;
+        }
     }
 
     private static String normalizeFieldPath(String fieldPath, String fieldLabel) {
